@@ -2,8 +2,8 @@
 对弈测试脚本。
 
 用法：
-    python play.py --agent1 mcts --agent2 random --size 5 --rounds 50
-    python play.py --agent1 minimax --agent2 mcts --size 9 --depth 3
+    python play.py --agent1 mcts --agent2 random --size 5
+    python play.py --agent1 minimax --agent2 mcts --size 5 --games 10
 """
 
 import argparse
