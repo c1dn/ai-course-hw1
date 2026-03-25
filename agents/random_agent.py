@@ -23,6 +23,7 @@ class RandomAgent:
 
     def __init__(self):
         """初始化随机智能体（无需特殊参数）"""
+        # TODO: 学生实现
         pass
 
     def select_move(self, game_state: GameState) -> Move:
@@ -35,8 +36,10 @@ class RandomAgent:
         Returns:
             随机选择的合法 Move
         """
-        legal_moves = game_state.legal_moves()
-        return random.choice(legal_moves)
+        # TODO: 学生实现
+        # 提示：使用 game_state.legal_moves() 获取所有合法棋步
+        # 提示：使用 random.choice() 随机选择
+        pass
 
 
 # 便捷函数（向后兼容 play.py）
