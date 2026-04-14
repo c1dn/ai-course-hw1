@@ -10,7 +10,7 @@ import argparse
 import random
 import time
 
-from dlgo import GameState, Player, Point
+from dlgo import GameState, Player, Point, default_komi_for_board_size
 from dlgo.goboard import Move
 
 
@@ -77,14 +77,14 @@ def print_board(game_state):
         print()
 
 
-def play_game(agent1_fn, agent2_fn, board_size=9, verbose=True):
+def play_game(agent1_fn, agent2_fn, board_size=9, komi=None, verbose=True):
     """
     进行一局对弈。
 
     Returns:
         (winner, move_count, duration_seconds)
     """
-    game = GameState.new_game(board_size)
+    game = GameState.new_game(board_size, komi=komi)
     agents = {
         Player.black: agent1_fn,
         Player.white: agent2_fn,
@@ -146,6 +146,12 @@ def main():
         help="棋盘大小 (默认 5)",
     )
     parser.add_argument(
+        "--komi",
+        type=float,
+        default=None,
+        help="贴目。默认 7.5，可通过参数覆盖。",
+    )
+    parser.add_argument(
         "--games",
         type=int,
         default=1,
@@ -158,6 +164,7 @@ def main():
     )
 
     args = parser.parse_args()
+    effective_komi = args.komi if args.komi is not None else default_komi_for_board_size(args.size)
 
     agent1 = AGENTS[args.agent1]
     agent2 = AGENTS[args.agent2]
@@ -171,7 +178,7 @@ def main():
             print(f"\n========== 对局 {i+1}/{args.games} ==========")
 
         winner, moves, duration = play_game(
-            agent1, agent2, args.size, verbose=not args.quiet
+            agent1, agent2, args.size, komi=args.komi, verbose=not args.quiet
         )
 
         results[winner] += 1
@@ -180,6 +187,7 @@ def main():
 
     print("\n========== 统计 ==========")
     print(f"对局数: {args.games}")
+    print(f"贴目: {effective_komi}")
     print(f"黑方 ({args.agent1}) 胜: {results[Player.black]}")
     print(f"白方 ({args.agent2}) 胜: {results[Player.white]}")
     print(f"平局: {results[None]}")

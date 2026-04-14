@@ -9,7 +9,7 @@
 
 import copy
 from .gotypes import Player, Point
-from .scoring import compute_game_result
+from .scoring import compute_game_result, default_komi_for_board_size
 from . import zobrist
 
 __all__ = ["Board", "GameState", "Move"]
@@ -284,10 +284,16 @@ class GameState:
         last_move: 上一步棋
     """
 
-    def __init__(self, board, next_player, previous, move):
+    def __init__(self, board, next_player, previous, move, komi=None):
         self.board = board
         self.next_player = next_player
         self.previous_state = previous
+        if komi is not None:
+            self.komi = komi
+        elif previous is not None:
+            self.komi = previous.komi
+        else:
+            self.komi = default_komi_for_board_size((board.num_rows, board.num_cols))
         if self.previous_state is None:
             self.previous_states = frozenset()
         else:
@@ -313,11 +319,11 @@ class GameState:
         else:
             next_board = self.board
         return GameState(
-            next_board, self.next_player.other, self, move
+            next_board, self.next_player.other, self, move, komi=self.komi
         )
 
     @classmethod
-    def new_game(cls, board_size):
+    def new_game(cls, board_size, komi=None):
         """
         创建新对局。
 
@@ -330,7 +336,7 @@ class GameState:
         if isinstance(board_size, int):
             board_size = (board_size, board_size)
         board = Board(*board_size)
-        return GameState(board, Player.black, None, None)
+        return GameState(board, Player.black, None, None, komi=komi)
 
     def is_move_self_capture(self, player, move):
         """检查是否自杀（落子后无气）。"""

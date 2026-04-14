@@ -9,6 +9,20 @@ from collections import namedtuple
 from .gotypes import Player, Point
 
 
+def default_komi_for_board_size(board_size):
+    """
+    Return the default komi for a given board size.
+
+    Current project default:
+    - all board sizes -> 7.5 unless explicitly overridden
+    """
+    if isinstance(board_size, int):
+        _rows, _cols = board_size, board_size
+    else:
+        _rows, _cols = board_size
+    return 7.5
+
+
 class Territory:
     """
     统计“地、子、中立点（dame）”的容器类。
@@ -152,8 +166,15 @@ def compute_game_result(game_state):
         GameResult: 包含黑方分、白方分、贴目的结果对象
     """
     territory = evaluate_territory(game_state.board)
+    komi = getattr(
+        game_state,
+        "komi",
+        default_komi_for_board_size(
+            (game_state.board.num_rows, game_state.board.num_cols)
+        ),
+    )
     return GameResult(
         territory.num_black_territory + territory.num_black_stones,
         territory.num_white_territory + territory.num_white_stones,
-        komi=7.5,
+        komi=komi,
     )

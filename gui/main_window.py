@@ -30,7 +30,7 @@ class AIMoveWorker(QtCore.QObject):
 
 
 class GoMainWindow(QtWidgets.QMainWindow):
-    def __init__(self):
+    def __init__(self, komi_override=None):
         super().__init__()
         self.setWindowTitle("Go AI Arena")
         self.resize(1220, 820)
@@ -50,6 +50,7 @@ class GoMainWindow(QtWidgets.QMainWindow):
         self._forced_result_text = ""
         self._move_limit = 50
         self._form_rows = {}
+        self._komi_override = komi_override
 
         self._build_ui()
         self._install_style()
@@ -351,7 +352,7 @@ class GoMainWindow(QtWidgets.QMainWindow):
             return
 
         size = int(self.size_combo.currentText())
-        self.game_state = GameState.new_game(size)
+        self.game_state = GameState.new_game(size, komi=self._komi_override)
         self.history = [self.game_state]
         self._move_limit = size * size * 2
         self._forced_game_over = False
@@ -372,7 +373,8 @@ class GoMainWindow(QtWidgets.QMainWindow):
             }
             self.player_agents = {ai_player: self._build_agent(ai_type)}
             self._append_log(
-                f"New game {size}x{size}: You={self._player_name(human)}, AI={ai_type.upper()}"
+                f"New game {size}x{size} (komi={self.game_state.komi:.1f}): "
+                f"You={self._player_name(human)}, AI={ai_type.upper()}"
             )
         else:
             black_type = self.black_agent_combo.currentData() or "random"
@@ -383,7 +385,8 @@ class GoMainWindow(QtWidgets.QMainWindow):
                 Player.white: self._build_agent(white_type),
             }
             self._append_log(
-                f"New game {size}x{size}: Black={black_type.upper()} vs White={white_type.upper()}"
+                f"New game {size}x{size} (komi={self.game_state.komi:.1f}): "
+                f"Black={black_type.upper()} vs White={white_type.upper()}"
             )
 
         self.board_widget.set_game_state(self.game_state)
@@ -634,7 +637,7 @@ class GoMainWindow(QtWidgets.QMainWindow):
     def _estimate_score_text(self):
         territory = evaluate_territory(self.game_state.board)
         black = territory.num_black_stones + territory.num_black_territory
-        white = territory.num_white_stones + territory.num_white_territory + 7.5
+        white = territory.num_white_stones + territory.num_white_territory + self.game_state.komi
         return f"B {black:.1f} - W {white:.1f}"
 
     def _player_name(self, player):
