@@ -21,10 +21,9 @@ class RandomAgent:
     - 认输 (resign)
     """
 
-    def __init__(self):
-        """初始化随机智能体（无需特殊参数）"""
-        # TODO: 学生实现
-        pass
+    def __init__(self, allow_resign=False):
+        """初始化随机智能体。"""
+        self.allow_resign = allow_resign
 
     def select_move(self, game_state: GameState) -> Move:
         """
@@ -36,10 +35,13 @@ class RandomAgent:
         Returns:
             随机选择的合法 Move
         """
-        # TODO: 学生实现
-        # 提示：使用 game_state.legal_moves() 获取所有合法棋步
-        # 提示：使用 random.choice() 随机选择
-        pass
+        legal_moves = game_state.legal_moves()
+        if not self.allow_resign:
+            legal_moves = [m for m in legal_moves if not m.is_resign]
+
+        if not legal_moves:
+            return Move.pass_turn()
+        return random.choice(legal_moves)
 
 
 # 便捷函数（向后兼容 play.py）

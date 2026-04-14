@@ -1,146 +1,220 @@
 """
-第三小问（选做）：Minimax 智能体
-
-实现 Minimax + Alpha-Beta 剪枝算法，与 MCTS 对比效果。
-可选实现，用于对比不同搜索算法的差异。
-
-参考：《深度学习与围棋》第 3 章
+Optional Minimax + Alpha-Beta Go agent.
 """
 
 from dlgo.gotypes import Player
+from dlgo import Point
 from dlgo.goboard import GameState, Move
+from dlgo.scoring import evaluate_territory
 
 __all__ = ["MinimaxAgent"]
 
 
-
 class MinimaxAgent:
     """
-    Minimax 智能体（带 Alpha-Beta 剪枝）。
-
-    属性：
-        max_depth: 搜索最大深度
-        evaluator: 局面评估函数
+    Minimax agent with Alpha-Beta pruning and a light cache.
     """
 
-    def __init__(self, max_depth=3, evaluator=None):
+    def __init__(self, max_depth=3, evaluator=None, max_branch=12):
         self.max_depth = max_depth
-        # 默认评估函数（TODO：学生可替换为神经网络）
+        self.max_branch = max_branch
         self.evaluator = evaluator or self._default_evaluator
+        self.cache = GameResultCache()
+        self._root_player = Player.black
 
     def select_move(self, game_state: GameState) -> Move:
-        """
-        为当前局面选择最佳棋步。
+        if game_state.is_over():
+            return Move.pass_turn()
 
-        Args:
-            game_state: 当前游戏状态
+        self._root_player = game_state.next_player
+        best_score = float("-inf")
+        best_move = Move.pass_turn()
 
-        Returns:
-            选定的棋步
-        """
-        # TODO: 实现 Minimax 搜索，调用 minimax 或 alphabeta
-        pass
+        for move in self._get_ordered_moves(game_state):
+            next_state = game_state.apply_move(move)
+            value = self.alphabeta(
+                next_state,
+                depth=self.max_depth - 1,
+                alpha=float("-inf"),
+                beta=float("inf"),
+                maximizing_player=False,
+            )
+            if value > best_score:
+                best_score = value
+                best_move = move
+
+        return best_move
 
     def minimax(self, game_state, depth, maximizing_player):
-        """
-        基础 Minimax 算法。
+        terminal = self._terminal_value(game_state)
+        if terminal is not None:
+            return terminal
+        if depth == 0:
+            return self.evaluator(game_state)
 
-        Args:
-            game_state: 当前局面
-            depth: 剩余搜索深度
-            maximizing_player: 是否在当前层最大化（True=我方）
+        moves = self._get_ordered_moves(game_state)
+        if maximizing_player:
+            best = float("-inf")
+            for move in moves:
+                value = self.minimax(game_state.apply_move(move), depth - 1, False)
+                best = max(best, value)
+            return best
 
-        Returns:
-            该局面的评估值
-        """
-        # TODO: 实现 Minimax
-        # 提示：
-        # 1. 终局或 depth=0 时返回评估值
-        # 2. 如果是最大化方：取所有子节点最大值
-        # 3. 如果是最小化方：取所有子节点最小值
-        pass
+        best = float("inf")
+        for move in moves:
+            value = self.minimax(game_state.apply_move(move), depth - 1, True)
+            best = min(best, value)
+        return best
 
     def alphabeta(self, game_state, depth, alpha, beta, maximizing_player):
-        """
-        Alpha-Beta 剪枝优化版 Minimax。
+        terminal = self._terminal_value(game_state)
+        if terminal is not None:
+            return terminal
+        if depth == 0:
+            return self.evaluator(game_state)
 
-        Args:
-            game_state: 当前局面
-            depth: 剩余搜索深度
-            alpha: 当前最大下界
-            beta: 当前最小上界
-            maximizing_player: 是否在当前层最大化
+        key = (game_state.next_player, game_state.board.zobrist_hash())
+        cached = self.cache.get(key)
+        alpha_orig = alpha
+        beta_orig = beta
+        if cached and cached["depth"] >= depth:
+            if cached["flag"] == "exact":
+                return cached["value"]
+            if cached["flag"] == "lower":
+                alpha = max(alpha, cached["value"])
+            elif cached["flag"] == "upper":
+                beta = min(beta, cached["value"])
+            if alpha >= beta:
+                return cached["value"]
 
-        Returns:
-            该局面的评估值
-        """
-        # TODO: 实现 Alpha-Beta 剪枝
-        # 提示：在 minimax 基础上添加剪枝逻辑
-        # - 最大化方：如果 value >= beta 则剪枝
-        # - 最小化方：如果 value <= alpha 则剪枝
-        pass
+        if maximizing_player:
+            value = float("-inf")
+            for move in self._get_ordered_moves(game_state):
+                score = self.alphabeta(
+                    game_state.apply_move(move), depth - 1, alpha, beta, False
+                )
+                value = max(value, score)
+                alpha = max(alpha, value)
+                if alpha >= beta:
+                    break
+        else:
+            value = float("inf")
+            for move in self._get_ordered_moves(game_state):
+                score = self.alphabeta(
+                    game_state.apply_move(move), depth - 1, alpha, beta, True
+                )
+                value = min(value, score)
+                beta = min(beta, value)
+                if alpha >= beta:
+                    break
+
+        if value <= alpha_orig:
+            flag = "upper"
+        elif value >= beta_orig:
+            flag = "lower"
+        else:
+            flag = "exact"
+        self.cache.put(key, depth, value, flag)
+        return value
 
     def _default_evaluator(self, game_state):
-        """
-        默认局面评估函数（简单版本）。
+        territory = evaluate_territory(game_state.board)
 
-        学生作业：替换为更复杂的评估函数，如：
-            - 气数统计
-            - 眼位识别
-            - 神经网络评估
+        black_score = territory.num_black_stones + territory.num_black_territory
+        white_score = territory.num_white_stones + territory.num_white_territory + 7.5
+        material_margin = black_score - white_score
 
-        Args:
-            game_state: 游戏状态
+        # Lightweight liberty signal as tie-breaker.
+        liberty_margin = 0
+        board = game_state.board
+        for r in range(1, board.num_rows + 1):
+            for c in range(1, board.num_cols + 1):
+                point = Point(r, c)
+                string = board.get_go_string(point)
+                if string is None:
+                    continue
+                if string.color == Player.black:
+                    liberty_margin += string.num_liberties
+                else:
+                    liberty_margin -= string.num_liberties
 
-        Returns:
-            评估值（正数对我方有利）
-        """
-        # TODO: 实现简单的启发式评估
-        # 示例：子数差 + 气数差
-        pass
+        score = material_margin + 0.05 * liberty_margin
+        if self._root_player == Player.black:
+            return score
+        return -score
 
     def _get_ordered_moves(self, game_state):
-        """
-        获取排序后的候选棋步（用于优化剪枝效率）。
+        legal = game_state.legal_moves()
+        play_moves = [m for m in legal if m.is_play]
+        pass_moves = [m for m in legal if m.is_pass]
 
-        好的排序能让 Alpha-Beta 剪掉更多分支。
+        scored = []
+        board = game_state.board
+        center_r = (board.num_rows + 1) / 2.0
+        center_c = (board.num_cols + 1) / 2.0
+        player = game_state.next_player
+        opponent = player.other
 
-        Args:
-            game_state: 游戏状态
+        for move in play_moves:
+            score = 0.0
+            point = move.point
 
-        Returns:
-            按启发式排序的棋步列表
-        """
-        # TODO: 实现棋步排序
-        # 提示：优先检查吃子、提子、连络等好棋
-        moves = game_state.legal_moves()
-        return moves  # 目前无序
+            captures = 0
+            for nb in point.neighbors():
+                if not board.is_on_grid(nb):
+                    continue
+                string = board.get_go_string(nb)
+                if string and string.color == opponent and string.num_liberties == 1:
+                    captures += len(string.stones)
+            score += captures * 5.0
 
+            dist = abs(point.row - center_r) + abs(point.col - center_c)
+            score += max(0.0, 2.5 - 0.3 * dist)
+
+            try:
+                next_state = game_state.apply_move(move)
+                string = next_state.board.get_go_string(point)
+                if string is not None:
+                    score += min(4, string.num_liberties) * 0.5
+                    if string.num_liberties == 1:
+                        score -= 2.0
+            except Exception:
+                score -= 10.0
+
+            scored.append((score, move))
+
+        scored.sort(key=lambda item: item[0], reverse=True)
+        ordered = [m for _, m in scored[: self.max_branch]]
+        if pass_moves:
+            ordered.extend(pass_moves)
+        return ordered if ordered else [Move.pass_turn()]
+
+    def _terminal_value(self, game_state):
+        if not game_state.is_over():
+            return None
+        winner = game_state.winner()
+        if winner is None:
+            return 0.0
+        return 10000.0 if winner == self._root_player else -10000.0
 
 
 class GameResultCache:
     """
-    局面缓存（Transposition Table）。
-
-    用 Zobrist 哈希缓存已评估的局面，避免重复计算。
+    Small transposition table.
     """
 
     def __init__(self):
         self.cache = {}
 
     def get(self, zobrist_hash):
-        """获取缓存的评估值。"""
         return self.cache.get(zobrist_hash)
 
-    def put(self, zobrist_hash, depth, value, flag='exact'):
-        """
-        缓存评估结果。
-
-        Args:
-            zobrist_hash: 局面哈希
-            depth: 搜索深度
-            value: 评估值
-            flag: 'exact'/'lower'/'upper'（精确值/下界/上界）
-        """
-        # TODO: 实现缓存逻辑（考虑深度优先替换策略）
-        pass
+    def put(self, zobrist_hash, depth, value, flag="exact"):
+        current = self.cache.get(zobrist_hash)
+        if current is not None and current["depth"] > depth:
+            return
+        self.cache[zobrist_hash] = {
+            "depth": depth,
+            "value": value,
+            "flag": flag,
+        }

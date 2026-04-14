@@ -6,8 +6,8 @@
 - minimax_agent: Minimax + Alpha-Beta 剪枝智能体
 """
 
-# 注意：学生需要完成这些模块中的 TODO 部分
-# from .mcts_agent import MCTSAgent
-# from .minimax_agent import MinimaxAgent
+from .random_agent import RandomAgent
+from .mcts_agent import MCTSAgent
+from .minimax_agent import MinimaxAgent
 
-__all__ = []
+__all__ = ["RandomAgent", "MCTSAgent", "MinimaxAgent"]

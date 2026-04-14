@@ -10,13 +10,6 @@
 
 ---
 
-## 助教信息
-
-- 席子恒：xizh21@mails.tsinghua.edu.cn
-- 李自远：liziyuan22@mails.tsinghua.edu.cn
-
----
-
 ## AI 辅助声明
 
 本项目作业框架在 **Claude Code + GLM-5** 的辅助下完成编写。
