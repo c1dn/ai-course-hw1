@@ -7,6 +7,7 @@
 
 import random
 from dlgo import GameState, Move
+from agents.policy.opening_policy import forced_center_opening_move
 
 __all__ = ["RandomAgent"]
 
@@ -35,6 +36,10 @@ class RandomAgent:
         Returns:
             随机选择的合法 Move
         """
+        forced_move = forced_center_opening_move(game_state)
+        if forced_move is not None:
+            return forced_move
+
         legal_moves = game_state.legal_moves()
         if not self.allow_resign:
             legal_moves = [m for m in legal_moves if not m.is_resign]

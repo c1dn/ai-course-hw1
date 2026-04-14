@@ -1,5 +1,5 @@
 """
-Reproducible experiment runner for the 5x5 Go homework.
+Flexible experiment runner for Go agents.
 """
 
 from __future__ import annotations
@@ -8,10 +8,12 @@ import argparse
 import csv
 import json
 import random
+import re
 import sys
 import time
 from collections import Counter
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
@@ -22,263 +24,26 @@ if str(REPO_ROOT) not in sys.path:
 from agents.mcts_agent import MCTSAgent
 from agents.minimax_agent import MinimaxAgent
 from agents.random_agent import RandomAgent
-from dlgo import GameState, Player, compute_game_result
+from dlgo import GameState, Player, compute_game_result, default_komi_for_board_size
+from dlgo.gotypes import Point
 from dlgo.goboard import Move
 
 
 MOVE_LIMIT_FACTOR = 2
+DEFAULT_MOVE_TIME_LIMIT_S = 20.0
+DEFAULT_RESULTS_ROOT = REPO_ROOT / "experiments" / "results"
 
 
 @dataclass(frozen=True)
-class AgentConfig:
-    label: str
+class AgentSpec:
     family: str
+    label: str
     params: dict
     factory: Callable[[], object]
 
 
-@dataclass(frozen=True)
-class MatchupConfig:
-    order: int
-    group: str
-    key: str
-    display_name: str
-    agent_a: AgentConfig
-    agent_b: AgentConfig
-
-
-def build_agent_catalog() -> dict[str, AgentConfig]:
-    return {
-        "random": AgentConfig(
-            label="Random",
-            family="Random",
-            params={},
-            factory=lambda: RandomAgent(),
-        ),
-        "mcts_standard_100": AgentConfig(
-            label="MCTS standard",
-            family="MCTS",
-            params={
-                "num_rounds": 100,
-                "max_rollout_depth": -1,
-                "rollout_policy": "random",
-                "expansion_policy": "uniform",
-                "use_prior_bonus": False,
-            },
-            factory=lambda: MCTSAgent.standard_baseline(num_rounds=100),
-        ),
-        "mcts_depth_cap_100": AgentConfig(
-            label="MCTS + depth cap(20)",
-            family="MCTS",
-            params={
-                "num_rounds": 100,
-                "max_rollout_depth": 20,
-                "rollout_policy": "random",
-                "expansion_policy": "uniform",
-                "use_prior_bonus": False,
-            },
-            factory=lambda: MCTSAgent.standard_baseline(
-                num_rounds=100,
-                max_rollout_depth=20,
-            ),
-        ),
-        "mcts_heur_rollout_100": AgentConfig(
-            label="MCTS + heuristic rollout",
-            family="MCTS",
-            params={
-                "num_rounds": 100,
-                "max_rollout_depth": 20,
-                "rollout_policy": "heuristic",
-                "expansion_policy": "uniform",
-                "use_prior_bonus": False,
-            },
-            factory=lambda: MCTSAgent(
-                num_rounds=100,
-                max_rollout_depth=20,
-                rollout_policy="heuristic",
-                expansion_policy="uniform",
-                use_prior_bonus=False,
-            ),
-        ),
-        "mcts_full_opt_30": AgentConfig(
-            label="MCTS optimized (30 rounds)",
-            family="MCTS",
-            params={
-                "num_rounds": 30,
-                "max_rollout_depth": 20,
-                "rollout_policy": "heuristic",
-                "expansion_policy": "heuristic",
-                "use_prior_bonus": True,
-            },
-            factory=lambda: MCTSAgent(
-                num_rounds=30,
-                max_rollout_depth=20,
-                rollout_policy="heuristic",
-                expansion_policy="heuristic",
-                use_prior_bonus=True,
-            ),
-        ),
-        "mcts_full_opt_100": AgentConfig(
-            label="MCTS optimized (100 rounds)",
-            family="MCTS",
-            params={
-                "num_rounds": 100,
-                "max_rollout_depth": 20,
-                "rollout_policy": "heuristic",
-                "expansion_policy": "heuristic",
-                "use_prior_bonus": True,
-            },
-            factory=lambda: MCTSAgent(
-                num_rounds=100,
-                max_rollout_depth=20,
-                rollout_policy="heuristic",
-                expansion_policy="heuristic",
-                use_prior_bonus=True,
-            ),
-        ),
-        "mcts_full_opt_200": AgentConfig(
-            label="MCTS optimized (200 rounds)",
-            family="MCTS",
-            params={
-                "num_rounds": 200,
-                "max_rollout_depth": 20,
-                "rollout_policy": "heuristic",
-                "expansion_policy": "heuristic",
-                "use_prior_bonus": True,
-            },
-            factory=lambda: MCTSAgent(
-                num_rounds=200,
-                max_rollout_depth=20,
-                rollout_policy="heuristic",
-                expansion_policy="heuristic",
-                use_prior_bonus=True,
-            ),
-        ),
-        "minimax_depth_2": AgentConfig(
-            label="Minimax depth=2",
-            family="Minimax",
-            params={"max_depth": 2, "max_branch": 12},
-            factory=lambda: MinimaxAgent(max_depth=2, max_branch=12),
-        ),
-        "minimax_depth_3": AgentConfig(
-            label="Minimax depth=3",
-            family="Minimax",
-            params={"max_depth": 3, "max_branch": 12},
-            factory=lambda: MinimaxAgent(max_depth=3, max_branch=12),
-        ),
-    }
-
-
-def build_matchups() -> list[MatchupConfig]:
-    catalog = build_agent_catalog()
-    random_agent = catalog["random"]
-
-    return [
-        MatchupConfig(
-            order=0,
-            group="mcts_ablation",
-            key="mcts_standard_vs_random",
-            display_name="Standard MCTS vs Random",
-            agent_a=catalog["mcts_standard_100"],
-            agent_b=random_agent,
-        ),
-        MatchupConfig(
-            order=1,
-            group="mcts_ablation",
-            key="mcts_depth_cap_vs_random",
-            display_name="MCTS + depth cap vs Random",
-            agent_a=catalog["mcts_depth_cap_100"],
-            agent_b=random_agent,
-        ),
-        MatchupConfig(
-            order=2,
-            group="mcts_ablation",
-            key="mcts_heur_rollout_vs_random",
-            display_name="MCTS + heuristic rollout vs Random",
-            agent_a=catalog["mcts_heur_rollout_100"],
-            agent_b=random_agent,
-        ),
-        MatchupConfig(
-            order=3,
-            group="mcts_ablation",
-            key="mcts_full_opt_vs_random",
-            display_name="MCTS optimized vs Random",
-            agent_a=catalog["mcts_full_opt_100"],
-            agent_b=random_agent,
-        ),
-        MatchupConfig(
-            order=4,
-            group="mcts_rounds",
-            key="mcts_opt_30_vs_random",
-            display_name="Optimized MCTS (30) vs Random",
-            agent_a=catalog["mcts_full_opt_30"],
-            agent_b=random_agent,
-        ),
-        MatchupConfig(
-            order=5,
-            group="mcts_rounds",
-            key="mcts_opt_100_vs_random",
-            display_name="Optimized MCTS (100) vs Random",
-            agent_a=catalog["mcts_full_opt_100"],
-            agent_b=random_agent,
-        ),
-        MatchupConfig(
-            order=6,
-            group="mcts_rounds",
-            key="mcts_opt_200_vs_random",
-            display_name="Optimized MCTS (200) vs Random",
-            agent_a=catalog["mcts_full_opt_200"],
-            agent_b=random_agent,
-        ),
-        MatchupConfig(
-            order=7,
-            group="minimax_depth",
-            key="minimax_2_vs_random",
-            display_name="Minimax depth=2 vs Random",
-            agent_a=catalog["minimax_depth_2"],
-            agent_b=random_agent,
-        ),
-        MatchupConfig(
-            order=8,
-            group="minimax_depth",
-            key="minimax_3_vs_random",
-            display_name="Minimax depth=3 vs Random",
-            agent_a=catalog["minimax_depth_3"],
-            agent_b=random_agent,
-        ),
-        MatchupConfig(
-            order=9,
-            group="crossplay",
-            key="mcts_opt_30_vs_minimax_3",
-            display_name="Optimized MCTS (30) vs Minimax depth=3",
-            agent_a=catalog["mcts_full_opt_30"],
-            agent_b=catalog["minimax_depth_3"],
-        ),
-        MatchupConfig(
-            order=10,
-            group="crossplay",
-            key="mcts_opt_100_vs_minimax_3",
-            display_name="Optimized MCTS (100) vs Minimax depth=3",
-            agent_a=catalog["mcts_full_opt_100"],
-            agent_b=catalog["minimax_depth_3"],
-        ),
-        MatchupConfig(
-            order=11,
-            group="crossplay",
-            key="mcts_opt_200_vs_minimax_3",
-            display_name="Optimized MCTS (200) vs Minimax depth=3",
-            agent_a=catalog["mcts_full_opt_200"],
-            agent_b=catalog["minimax_depth_3"],
-        ),
-        MatchupConfig(
-            order=12,
-            group="crossplay",
-            key="mcts_opt_100_vs_minimax_2",
-            display_name="Optimized MCTS (100) vs Minimax depth=2",
-            agent_a=catalog["mcts_full_opt_100"],
-            agent_b=catalog["minimax_depth_2"],
-        ),
-    ]
+def format_float(value: float, digits: int = 3) -> str:
+    return f"{value:.{digits}f}"
 
 
 def player_name(player: Player | None) -> str:
@@ -291,67 +56,134 @@ def signed_black_margin(game_result) -> float:
     return game_result.b - (game_result.w + game_result.komi)
 
 
-def escape_latex(text: str) -> str:
-    replacements = {
-        "\\": r"\textbackslash{}",
-        "&": r"\&",
-        "%": r"\%",
-        "$": r"\$",
-        "#": r"\#",
-        "_": r"\_",
-        "{": r"\{",
-        "}": r"\}",
-        "~": r"\textasciitilde{}",
-        "^": r"\textasciicircum{}",
-    }
-    for source, target in replacements.items():
-        text = text.replace(source, target)
-    return text
+def move_to_text(move: Move) -> str:
+    if move.is_pass:
+        return "pass"
+    if move.is_resign:
+        return "resign"
+    return f"({move.point.row}, {move.point.col})"
 
 
-def format_float(value: float, digits: int = 2) -> str:
-    return f"{value:.{digits}f}"
+def render_board_unicode(game_state: GameState) -> str:
+    board = game_state.board
+    header = "   " + " ".join(f"{col:2}" for col in range(1, board.num_cols + 1))
+    lines = [header]
+    for row in range(1, board.num_rows + 1):
+        cells = []
+        for col in range(1, board.num_cols + 1):
+            stone = board.get(Point(row, col))
+            if stone == Player.black:
+                cells.append("●")
+            elif stone == Player.white:
+                cells.append("○")
+            else:
+                cells.append("·")
+        lines.append(f"{row:2} " + " ".join(f"{cell:>2}" for cell in cells))
+    return "\n".join(lines)
 
 
-def to_float(value) -> float:
-    return float(value)
+def slugify(text: str) -> str:
+    text = text.lower()
+    text = re.sub(r"[^a-z0-9]+", "-", text)
+    return text.strip("-") or "experiment"
+
+
+def build_agent_spec(side: str, args: argparse.Namespace) -> AgentSpec:
+    agent_name = getattr(args, f"{side}_agent")
+
+    if agent_name == "random":
+        return AgentSpec(
+            family="Random",
+            label="Random",
+            params={},
+            factory=lambda: RandomAgent(),
+        )
+
+    if agent_name == "mcts":
+        rounds = getattr(args, f"{side}_mcts_rounds")
+        if rounds < 1:
+            raise ValueError(f"{side} MCTS rounds must be >= 1, got {rounds}.")
+        params = {"num_rounds": rounds}
+        return AgentSpec(
+            family="MCTS",
+            label=f"MCTS(rounds={rounds})",
+            params=params,
+            factory=lambda: MCTSAgent(num_rounds=rounds),
+        )
+
+    if agent_name == "minimax":
+        depth = getattr(args, f"{side}_minimax_depth")
+        if depth < 1:
+            raise ValueError(f"{side} minimax depth must be >= 1, got {depth}.")
+        params = {"max_depth": depth}
+        return AgentSpec(
+            family="Minimax",
+            label=f"Minimax(depth={depth})",
+            params=params,
+            factory=lambda: MinimaxAgent(max_depth=depth),
+        )
+
+    raise ValueError(f"Unsupported {side} agent: {agent_name!r}")
+
+
+def resolve_output_dir(
+    args: argparse.Namespace,
+    black_spec: AgentSpec,
+    white_spec: AgentSpec,
+) -> Path:
+    if args.output_dir is not None:
+        output_dir = args.output_dir
+        if not output_dir.is_absolute():
+            output_dir = REPO_ROOT / output_dir
+        return output_dir
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_name = (
+        f"{slugify(black_spec.label)}_vs_{slugify(white_spec.label)}"
+        f"_size{args.size}_games{args.games}_{timestamp}"
+    )
+    return DEFAULT_RESULTS_ROOT / run_name
 
 
 def play_single_game(
-    matchup: MatchupConfig,
     size: int,
     move_limit: int,
+    komi: float | None,
     seed: int,
-    agent_a_as_black: bool,
     game_index: int,
+    black_spec: AgentSpec,
+    white_spec: AgentSpec,
+    move_time_limit_s: float,
+    trace_moves: bool,
 ) -> dict:
     random.seed(seed)
 
-    black_cfg = matchup.agent_a if agent_a_as_black else matchup.agent_b
-    white_cfg = matchup.agent_b if agent_a_as_black else matchup.agent_a
-    black_agent = black_cfg.factory()
-    white_agent = white_cfg.factory()
-
+    black_agent = black_spec.factory()
+    white_agent = white_spec.factory()
     agents = {
         Player.black: black_agent,
         Player.white: white_agent,
     }
     labels = {
-        Player.black: black_cfg.label,
-        Player.white: white_cfg.label,
+        Player.black: black_spec.label,
+        Player.white: white_spec.label,
     }
 
-    game = GameState.new_game(size)
+    game = GameState.new_game(size, komi=komi)
     move_count = 0
     turn_counts = {Player.black: 0, Player.white: 0}
     think_times = {Player.black: 0.0, Player.white: 0.0}
+    max_move_times = {Player.black: 0.0, Player.white: 0.0}
     start_time = time.perf_counter()
 
     while not game.is_over() and move_count < move_limit:
         current_player = game.next_player
         turn_start = time.perf_counter()
         move = agents[current_player].select_move(game)
-        think_times[current_player] += time.perf_counter() - turn_start
+        elapsed = time.perf_counter() - turn_start
+
+        think_times[current_player] += elapsed
+        max_move_times[current_player] = max(max_move_times[current_player], elapsed)
         turn_counts[current_player] += 1
 
         if move is None or not game.is_valid_move(move):
@@ -359,6 +191,16 @@ def play_single_game(
 
         game = game.apply_move(move)
         move_count += 1
+
+        if trace_moves:
+            print(
+                "[trace] "
+                f"game={game_index} | seed={seed} | move={move_count} | "
+                f"player={current_player.name} | agent={labels[current_player]} | "
+                f"action={move_to_text(move)} | elapsed={elapsed:.3f}s"
+            )
+            print(render_board_unicode(game))
+            print()
 
     total_duration = time.perf_counter() - start_time
 
@@ -368,34 +210,25 @@ def play_single_game(
         game_result = compute_game_result(game)
     else:
         termination_reason = "move_limit_score"
-        winner = None
         game_result = compute_game_result(game)
         winner = game_result.winner
 
     black_margin = signed_black_margin(game_result)
-    agent_a_color = Player.black if agent_a_as_black else Player.white
-    agent_b_color = agent_a_color.other
-    agent_a_margin = black_margin if agent_a_color == Player.black else -black_margin
 
     return {
-        "group": matchup.group,
-        "matchup_order": matchup.order,
-        "config_key": matchup.key,
-        "display_name": matchup.display_name,
-        "seed": seed,
         "game_index": game_index,
-        "agent_a_label": matchup.agent_a.label,
-        "agent_b_label": matchup.agent_b.label,
-        "agent_a_family": matchup.agent_a.family,
-        "agent_b_family": matchup.agent_b.family,
-        "agent_a_color": player_name(agent_a_color),
-        "agent_b_color": player_name(agent_b_color),
-        "black_label": labels[Player.black],
-        "white_label": labels[Player.white],
+        "seed": seed,
+        "board_size": size,
+        "move_limit": move_limit,
+        "komi": game_result.komi,
+        "black_label": black_spec.label,
+        "white_label": white_spec.label,
+        "black_family": black_spec.family,
+        "white_family": white_spec.family,
         "winner_color": player_name(winner),
         "winner_label": labels.get(winner, "none"),
-        "agent_a_won": int(winner == agent_a_color),
-        "agent_b_won": int(winner == agent_b_color),
+        "black_won": int(winner == Player.black),
+        "white_won": int(winner == Player.white),
         "move_count": move_count,
         "termination_reason": termination_reason,
         "total_duration_s": total_duration,
@@ -407,8 +240,15 @@ def play_single_game(
         / max(1, turn_counts[Player.black]),
         "white_avg_move_time_s": think_times[Player.white]
         / max(1, turn_counts[Player.white]),
+        "black_max_move_time_s": max_move_times[Player.black],
+        "white_max_move_time_s": max_move_times[Player.white],
+        "black_exceeded_move_time_limit": int(
+            max_move_times[Player.black] > move_time_limit_s
+        ),
+        "white_exceeded_move_time_limit": int(
+            max_move_times[Player.white] > move_time_limit_s
+        ),
         "black_margin": black_margin,
-        "agent_a_margin": agent_a_margin,
         "score_b": game_result.b,
         "score_w": game_result.w,
         "komi": game_result.komi,
@@ -416,71 +256,52 @@ def play_single_game(
     }
 
 
-def summarize_rows(rows: list[dict]) -> list[dict]:
-    grouped: dict[tuple[str, str], list[dict]] = {}
-    for row in rows:
-        grouped.setdefault((row["group"], row["config_key"]), []).append(row)
+def summarize_rows(
+    rows: list[dict],
+    black_spec: AgentSpec,
+    white_spec: AgentSpec,
+    move_time_limit_s: float,
+) -> dict:
+    if not rows:
+        raise ValueError("No game rows to summarize.")
 
-    summary_rows = []
-    for group, config_key in sorted(grouped.keys()):
-        group_rows = grouped[(group, config_key)]
-        terminations = Counter(row["termination_reason"] for row in group_rows)
-        display_name = group_rows[0]["display_name"]
-        agent_a_label = group_rows[0]["agent_a_label"]
-        agent_b_label = group_rows[0]["agent_b_label"]
-        matchup_order = group_rows[0]["matchup_order"]
+    terminations = Counter(row["termination_reason"] for row in rows)
 
-        summary_rows.append(
-            {
-                "group": group,
-                "matchup_order": matchup_order,
-                "config_key": config_key,
-                "display_name": display_name,
-                "agent_a_label": agent_a_label,
-                "agent_b_label": agent_b_label,
-                "games": len(group_rows),
-                "win_rate": sum(row["agent_a_won"] for row in group_rows)
-                / len(group_rows),
-                "win_rate_percent": 100.0
-                * sum(row["agent_a_won"] for row in group_rows)
-                / len(group_rows),
-                "avg_total_duration_s": sum(row["total_duration_s"] for row in group_rows)
-                / len(group_rows),
-                "avg_move_count": sum(row["move_count"] for row in group_rows)
-                / len(group_rows),
-                "avg_agent_a_move_time_s": sum(
-                    (
-                        row["black_avg_move_time_s"]
-                        if row["agent_a_color"] == "black"
-                        else row["white_avg_move_time_s"]
-                    )
-                    for row in group_rows
-                )
-                / len(group_rows),
-                "avg_agent_b_move_time_s": sum(
-                    (
-                        row["white_avg_move_time_s"]
-                        if row["agent_a_color"] == "black"
-                        else row["black_avg_move_time_s"]
-                    )
-                    for row in group_rows
-                )
-                / len(group_rows),
-                "avg_margin_for_agent_a": sum(
-                    row["agent_a_margin"] for row in group_rows
-                )
-                / len(group_rows),
-                "avg_abs_margin": sum(abs(row["agent_a_margin"]) for row in group_rows)
-                / len(group_rows),
-                "termination_summary": "; ".join(
-                    f"{key}:{terminations[key]}"
-                    for key in sorted(terminations.keys())
-                ),
-            }
-        )
-
-    summary_rows.sort(key=lambda row: row["matchup_order"])
-    return summary_rows
+    return {
+        "black_label": black_spec.label,
+        "white_label": white_spec.label,
+        "black_family": black_spec.family,
+        "white_family": white_spec.family,
+        "games": len(rows),
+        "black_win_rate": sum(row["black_won"] for row in rows) / len(rows),
+        "white_win_rate": sum(row["white_won"] for row in rows) / len(rows),
+        "black_win_rate_percent": 100.0
+        * sum(row["black_won"] for row in rows)
+        / len(rows),
+        "white_win_rate_percent": 100.0
+        * sum(row["white_won"] for row in rows)
+        / len(rows),
+        "avg_total_duration_s": sum(row["total_duration_s"] for row in rows) / len(rows),
+        "avg_move_count": sum(row["move_count"] for row in rows) / len(rows),
+        "avg_black_move_time_s": sum(row["black_avg_move_time_s"] for row in rows)
+        / len(rows),
+        "avg_white_move_time_s": sum(row["white_avg_move_time_s"] for row in rows)
+        / len(rows),
+        "max_black_move_time_s": max(row["black_max_move_time_s"] for row in rows),
+        "max_white_move_time_s": max(row["white_max_move_time_s"] for row in rows),
+        "black_exceeded_move_time_limit_games": sum(
+            row["black_exceeded_move_time_limit"] for row in rows
+        ),
+        "white_exceeded_move_time_limit_games": sum(
+            row["white_exceeded_move_time_limit"] for row in rows
+        ),
+        "move_time_limit_s": move_time_limit_s,
+        "avg_black_margin": sum(row["black_margin"] for row in rows) / len(rows),
+        "avg_abs_margin": sum(abs(row["black_margin"]) for row in rows) / len(rows),
+        "termination_summary": "; ".join(
+            f"{key}:{terminations[key]}" for key in sorted(terminations.keys())
+        ),
+    }
 
 
 def write_csv(path: Path, rows: list[dict], fieldnames: list[str]) -> None:
@@ -497,293 +318,61 @@ def write_json(path: Path, payload: dict) -> None:
         json.dump(payload, handle, ensure_ascii=False, indent=2)
 
 
-def rows_for_group(summary_rows: list[dict], group: str) -> list[dict]:
-    return [row for row in summary_rows if row["group"] == group]
-
-
-def write_group_plot_csv(
-    path: Path,
-    rows: list[dict],
-    x_key: str,
-    time_key: str = "avg_total_duration_s",
-) -> None:
-    fieldnames = [x_key, "win_rate_percent", time_key]
-    with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames)
-        writer.writeheader()
-        for row in rows:
-            writer.writerow(
-                {
-                    x_key: row[x_key],
-                    "win_rate_percent": format_float(to_float(row["win_rate_percent"])),
-                    time_key: format_float(
-                        to_float(row[time_key]), 3
-                    ),
-                }
-            )
-
-
-def latex_table(rows: list[dict], title_mode: str) -> str:
-    lines = [
-        r"\begin{tabular}{lrrrrrl}",
-        r"\toprule",
-    ]
-
-    if title_mode == "crossplay":
-        header = (
-            r"Matchup & Win rate (\%) & Avg. time (s) & Avg. think (s) & "
-            r"Avg. moves & Avg. margin & End reason \\"
-        )
-        lines.append(header)
-        lines.append(r"\midrule")
-        for row in rows:
-            lines.append(
-                " & ".join(
-                    [
-                        escape_latex(row["display_name"]),
-                        format_float(row["win_rate_percent"]),
-                        format_float(row["avg_total_duration_s"]),
-                        format_float(row["avg_agent_a_move_time_s"]),
-                        format_float(row["avg_move_count"]),
-                        format_float(row["avg_margin_for_agent_a"]),
-                        escape_latex(row["termination_summary"]),
-                    ]
-                )
-                + r" \\"
-            )
-    else:
-        header = (
-            r"Config & Win rate (\%) & Avg. time (s) & Avg. think (s) & "
-            r"Avg. moves & Avg. margin & End reason \\"
-        )
-        lines.append(header)
-        lines.append(r"\midrule")
-        for row in rows:
-            lines.append(
-                " & ".join(
-                    [
-                        escape_latex(row["agent_a_label"]),
-                        format_float(row["win_rate_percent"]),
-                        format_float(row["avg_total_duration_s"]),
-                        format_float(row["avg_agent_a_move_time_s"]),
-                        format_float(row["avg_move_count"]),
-                        format_float(row["avg_margin_for_agent_a"]),
-                        escape_latex(row["termination_summary"]),
-                    ]
-                )
-                + r" \\"
-            )
-
-    lines.extend([r"\bottomrule", r"\end{tabular}"])
-    return "\n".join(lines) + "\n"
-
-
-def write_report_fragments(
-    report_generated_dir: Path,
-    summary_rows: list[dict],
-    games_per_side: int,
-    board_size: int,
-) -> None:
-    report_generated_dir.mkdir(parents=True, exist_ok=True)
-
-    grouped = {
-        "mcts_ablation": rows_for_group(summary_rows, "mcts_ablation"),
-        "mcts_rounds": rows_for_group(summary_rows, "mcts_rounds"),
-        "minimax_depth": rows_for_group(summary_rows, "minimax_depth"),
-        "crossplay": rows_for_group(summary_rows, "crossplay"),
-    }
-
-    for name, rows in grouped.items():
-        mode = "crossplay" if name == "crossplay" else "default"
-        (report_generated_dir / f"{name}_table.tex").write_text(
-            latex_table(rows, mode),
-            encoding="utf-8",
-        )
-
-    metadata = "\n".join(
-        [
-            rf"\newcommand{{\ExperimentBoardSize}}{{{board_size}}}",
-            rf"\newcommand{{\ExperimentGamesPerSide}}{{{games_per_side}}}",
-            rf"\newcommand{{\ExperimentGamesPerConfig}}{{{games_per_side * 2}}}",
-            "",
-        ]
-    )
-    (report_generated_dir / "experiment_metadata.tex").write_text(
-        metadata,
-        encoding="utf-8",
-    )
-
-    ablation_plot_rows = []
-    for row in grouped["mcts_ablation"]:
-        ablation_plot_rows.append(
-            {
-                "label": row["agent_a_label"],
-                "win_rate_percent": row["win_rate_percent"],
-                "avg_total_duration_s": row["avg_total_duration_s"],
-            }
-        )
-    write_group_plot_csv(
-        report_generated_dir / "mcts_ablation_plot.csv",
-        ablation_plot_rows,
-        "label",
-    )
-
-    rounds_plot_rows = []
-    round_order = {"30": 30, "100": 100, "200": 200}
-    for row in grouped["mcts_rounds"]:
-        rounds_value = None
-        for token in round_order:
-            if token in row["agent_a_label"]:
-                rounds_value = round_order[token]
-                break
-        rounds_plot_rows.append(
-            {
-                "rounds": rounds_value,
-                "win_rate_percent": row["win_rate_percent"],
-                "avg_total_duration_s": row["avg_total_duration_s"],
-            }
-        )
-    rounds_plot_rows.sort(key=lambda item: item["rounds"])
-    write_group_plot_csv(
-        report_generated_dir / "mcts_rounds_plot.csv",
-        rounds_plot_rows,
-        "rounds",
-    )
-
-    minimax_plot_rows = []
-    for row in grouped["minimax_depth"]:
-        depth = 2 if "depth=2" in row["agent_a_label"] else 3
-        minimax_plot_rows.append(
-            {
-                "depth": depth,
-                "win_rate_percent": row["win_rate_percent"],
-                "avg_total_duration_s": row["avg_total_duration_s"],
-            }
-        )
-    minimax_plot_rows.sort(key=lambda item: item["depth"])
-    write_group_plot_csv(
-        report_generated_dir / "minimax_depth_plot.csv",
-        minimax_plot_rows,
-        "depth",
-    )
-
-    crossplay_rows = grouped["crossplay"]
-    if crossplay_rows:
-        crossplay_compare_rows = []
-        highlighted = next(
-            (
-                row
-                for row in crossplay_rows
-                if row["config_key"] == "mcts_opt_100_vs_minimax_3"
-            ),
-            crossplay_rows[0],
-        )
-        crossplay_compare_rows.extend(
-            [
-                {
-                    "agent": highlighted["agent_a_label"],
-                    "win_rate_percent": to_float(highlighted["win_rate_percent"]),
-                    "avg_move_time_s": to_float(highlighted["avg_agent_a_move_time_s"]),
-                },
-                {
-                    "agent": highlighted["agent_b_label"],
-                    "win_rate_percent": 100.0 - to_float(highlighted["win_rate_percent"]),
-                    "avg_move_time_s": to_float(highlighted["avg_agent_b_move_time_s"]),
-                },
-            ]
-        )
-        write_group_plot_csv(
-            report_generated_dir / "crossplay_compare_plot.csv",
-            crossplay_compare_rows,
-            "agent",
-            time_key="avg_move_time_s",
-        )
-
-        crossplay_round_rows = []
-        for row in crossplay_rows:
-            if row["agent_b_label"] != "Minimax depth=3":
-                continue
-            rounds = None
-            for token in ("30", "100", "200"):
-                if f"({token} rounds)" in row["agent_a_label"]:
-                    rounds = int(token)
-                    break
-            if rounds is None:
-                continue
-            crossplay_round_rows.append(
-                {
-                    "rounds": rounds,
-                    "win_rate_percent": to_float(row["win_rate_percent"]),
-                    "avg_total_duration_s": to_float(row["avg_total_duration_s"]),
-                }
-            )
-        crossplay_round_rows.sort(key=lambda item: item["rounds"])
-        if crossplay_round_rows:
-            write_group_plot_csv(
-                report_generated_dir / "crossplay_mcts_rounds_plot.csv",
-                crossplay_round_rows,
-                "rounds",
-            )
-
-        crossplay_depth_rows = []
-        for row in crossplay_rows:
-            if row["agent_a_label"] != "MCTS optimized (100 rounds)":
-                continue
-            depth = None
-            if row["agent_b_label"] == "Minimax depth=2":
-                depth = 2
-            elif row["agent_b_label"] == "Minimax depth=3":
-                depth = 3
-            if depth is None:
-                continue
-            crossplay_depth_rows.append(
-                {
-                    "depth": depth,
-                    "win_rate_percent": to_float(row["win_rate_percent"]),
-                    "avg_total_duration_s": to_float(row["avg_total_duration_s"]),
-                }
-            )
-        crossplay_depth_rows.sort(key=lambda item: item["depth"])
-        if crossplay_depth_rows:
-            write_group_plot_csv(
-                report_generated_dir / "crossplay_minimax_depth_plot.csv",
-                crossplay_depth_rows,
-                "depth",
-            )
-
-
-def build_selected_matchups(group: str) -> list[MatchupConfig]:
-    matchups = build_matchups()
-    if group == "all":
-        return matchups
-    return [matchup for matchup in matchups if matchup.group == group]
-
-
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run Go homework experiments.")
-    parser.add_argument(
-        "--group",
-        choices=["all", "mcts_ablation", "mcts_rounds", "minimax_depth", "crossplay"],
-        default="all",
-        help="Experiment group to run.",
-    )
-    parser.add_argument(
-        "--games-per-side",
-        type=int,
-        default=3,
-        help="Number of seeds / games for each color assignment.",
-    )
+    parser = argparse.ArgumentParser(description="Run parameterized Go experiments.")
     parser.add_argument(
         "--size",
         type=int,
         default=5,
-        help="Board size. Homework results should stay on 5x5.",
+        help="Board size.",
+    )
+    parser.add_argument(
+        "--black-agent",
+        choices=["random", "mcts", "minimax"],
+        required=True,
+        help="Black-side agent.",
+    )
+    parser.add_argument(
+        "--white-agent",
+        choices=["random", "mcts", "minimax"],
+        required=True,
+        help="White-side agent.",
+    )
+    parser.add_argument(
+        "--black-mcts-rounds",
+        type=int,
+        default=100,
+        help="Rounds passed to the black MCTS agent when black-agent=mcts.",
+    )
+    parser.add_argument(
+        "--white-mcts-rounds",
+        type=int,
+        default=100,
+        help="Rounds passed to the white MCTS agent when white-agent=mcts.",
+    )
+    parser.add_argument(
+        "--black-minimax-depth",
+        type=int,
+        default=3,
+        help="Depth passed to the black Minimax agent when black-agent=minimax.",
+    )
+    parser.add_argument(
+        "--white-minimax-depth",
+        type=int,
+        default=3,
+        help="Depth passed to the white Minimax agent when white-agent=minimax.",
+    )
+    parser.add_argument(
+        "--games",
+        type=int,
+        default=1,
+        help="Number of games to run.",
     )
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("artifacts/experiments"),
-        help="Directory for CSV / JSON outputs.",
+        default=None,
+        help="Output directory. Default is a timestamped subdirectory under experiments/results.",
     )
     parser.add_argument(
         "--seed-base",
@@ -791,65 +380,86 @@ def parse_args() -> argparse.Namespace:
         default=0,
         help="First random seed.",
     )
+    parser.add_argument(
+        "--move-limit",
+        type=int,
+        default=None,
+        help="Maximum moves per game. Default is board_size * board_size * 2.",
+    )
+    parser.add_argument(
+        "--komi",
+        type=float,
+        default=None,
+        help="Optional komi override. Default is 7.5.",
+    )
+    parser.add_argument(
+        "--move-time-limit-s",
+        type=float,
+        default=DEFAULT_MOVE_TIME_LIMIT_S,
+        help="Threshold used when checking whether a single move exceeds the limit.",
+    )
+    parser.add_argument(
+        "--trace-moves",
+        action="store_true",
+        help="Print per-move elapsed time and a Unicode board after each move.",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    selected_matchups = build_selected_matchups(args.group)
-    move_limit = args.size * args.size * MOVE_LIMIT_FACTOR
-    output_dir = (
-        args.output_dir
-        if args.output_dir.is_absolute()
-        else REPO_ROOT / args.output_dir
+    black_spec = build_agent_spec("black", args)
+    white_spec = build_agent_spec("white", args)
+
+    if args.games < 1:
+        raise ValueError(f"--games must be >= 1, got {args.games}.")
+
+    move_limit = args.move_limit
+    if move_limit is None:
+        move_limit = args.size * args.size * MOVE_LIMIT_FACTOR
+    effective_komi = (
+        args.komi if args.komi is not None else default_komi_for_board_size(args.size)
     )
 
-    per_game_rows = []
-    for matchup in selected_matchups:
-        for seed_offset in range(args.games_per_side):
-            seed = args.seed_base + seed_offset
-            per_game_rows.append(
-                play_single_game(
-                    matchup,
-                    size=args.size,
-                    move_limit=move_limit,
-                    seed=seed,
-                    agent_a_as_black=True,
-                    game_index=len(per_game_rows),
-                )
-            )
-            per_game_rows.append(
-                play_single_game(
-                    matchup,
-                    size=args.size,
-                    move_limit=move_limit,
-                    seed=seed,
-                    agent_a_as_black=False,
-                    game_index=len(per_game_rows),
-                )
-            )
+    output_dir = resolve_output_dir(args, black_spec, white_spec)
 
-    summary_rows = summarize_rows(per_game_rows)
+    per_game_rows = []
+    for game_index in range(args.games):
+        per_game_rows.append(
+            play_single_game(
+                size=args.size,
+                move_limit=move_limit,
+                komi=args.komi,
+                seed=args.seed_base + game_index,
+                game_index=game_index,
+                black_spec=black_spec,
+                white_spec=white_spec,
+                move_time_limit_s=args.move_time_limit_s,
+                trace_moves=args.trace_moves,
+            )
+        )
+
+    summary_row = summarize_rows(
+        per_game_rows,
+        black_spec=black_spec,
+        white_spec=white_spec,
+        move_time_limit_s=args.move_time_limit_s,
+    )
 
     per_game_fieldnames = [
-        "group",
-        "matchup_order",
-        "config_key",
-        "display_name",
-        "seed",
         "game_index",
-        "agent_a_label",
-        "agent_b_label",
-        "agent_a_family",
-        "agent_b_family",
-        "agent_a_color",
-        "agent_b_color",
+        "seed",
+        "board_size",
+        "move_limit",
+        "komi",
         "black_label",
         "white_label",
+        "black_family",
+        "white_family",
         "winner_color",
         "winner_label",
-        "agent_a_won",
-        "agent_b_won",
+        "black_won",
+        "white_won",
         "move_count",
         "termination_reason",
         "total_duration_s",
@@ -859,59 +469,81 @@ def main() -> None:
         "white_think_time_s",
         "black_avg_move_time_s",
         "white_avg_move_time_s",
+        "black_max_move_time_s",
+        "white_max_move_time_s",
+        "black_exceeded_move_time_limit",
+        "white_exceeded_move_time_limit",
         "black_margin",
-        "agent_a_margin",
         "score_b",
         "score_w",
         "komi",
         "result_text",
     ]
     summary_fieldnames = [
-        "group",
-        "matchup_order",
-        "config_key",
-        "display_name",
-        "agent_a_label",
-        "agent_b_label",
+        "black_label",
+        "white_label",
+        "black_family",
+        "white_family",
         "games",
-        "win_rate",
-        "win_rate_percent",
+        "black_win_rate",
+        "white_win_rate",
+        "black_win_rate_percent",
+        "white_win_rate_percent",
         "avg_total_duration_s",
         "avg_move_count",
-        "avg_agent_a_move_time_s",
-        "avg_agent_b_move_time_s",
-        "avg_margin_for_agent_a",
+        "avg_black_move_time_s",
+        "avg_white_move_time_s",
+        "max_black_move_time_s",
+        "max_white_move_time_s",
+        "black_exceeded_move_time_limit_games",
+        "white_exceeded_move_time_limit_games",
+        "move_time_limit_s",
+        "avg_black_margin",
         "avg_abs_margin",
         "termination_summary",
     ]
 
     output_dir.mkdir(parents=True, exist_ok=True)
     write_csv(output_dir / "per_game.csv", per_game_rows, per_game_fieldnames)
-    write_csv(output_dir / "summary.csv", summary_rows, summary_fieldnames)
+    write_csv(output_dir / "summary.csv", [summary_row], summary_fieldnames)
     write_json(
         output_dir / "summary.json",
         {
             "metadata": {
-                "group": args.group,
                 "board_size": args.size,
-                "games_per_side": args.games_per_side,
-                "games_per_config": args.games_per_side * 2,
+                "games": args.games,
                 "seed_base": args.seed_base,
                 "move_limit": move_limit,
+                "komi": effective_komi,
+                "move_time_limit_s": args.move_time_limit_s,
+                "black_agent": {
+                    "family": black_spec.family,
+                    "label": black_spec.label,
+                    "params": black_spec.params,
+                },
+                "white_agent": {
+                    "family": white_spec.family,
+                    "label": white_spec.label,
+                    "params": white_spec.params,
+                },
             },
-            "summary": summary_rows,
+            "summary": summary_row,
+            "per_game_count": len(per_game_rows),
         },
     )
 
-    write_report_fragments(
-        REPO_ROOT / "report" / "generated",
-        summary_rows,
-        games_per_side=args.games_per_side,
-        board_size=args.size,
+    print(f"Output directory: {output_dir}")
+    print(f"Black: {black_spec.label}")
+    print(f"White: {white_spec.label}")
+    print(f"Games: {args.games}")
+    print(f"Komi: {format_float(effective_komi, 1)}")
+    print(f"Saved per-game results to {output_dir / 'per_game.csv'}")
+    print(f"Saved summary to {output_dir / 'summary.csv'}")
+    print(
+        "Max move time: "
+        f"black={format_float(summary_row['max_black_move_time_s'])}s, "
+        f"white={format_float(summary_row['max_white_move_time_s'])}s"
     )
-
-    print(f"Saved {len(per_game_rows)} game records to {output_dir / 'per_game.csv'}")
-    print(f"Saved {len(summary_rows)} summary rows to {output_dir / 'summary.csv'}")
 
 
 if __name__ == "__main__":

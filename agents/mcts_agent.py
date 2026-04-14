@@ -8,6 +8,16 @@ from typing import List
 
 from dlgo import Player, compute_game_result
 from dlgo.goboard import GameState, Move
+from agents.policy.opening_policy import forced_center_opening_move
+from agents.policy.mcts_policy import (
+    candidate_moves,
+    fast_position_value,
+    move_index,
+    move_priority,
+    pick_expansion_move,
+    rollout_prior,
+    select_rollout_move,
+)
 
 __all__ = ["MCTSAgent"]
 
@@ -25,6 +35,7 @@ class MCTSNode:
         prior=1.0,
         expansion_policy="heuristic",
         use_prior_bonus=True,
+        candidate_limit=None,
     ):
         self.game_state = game_state
         self.parent = parent
@@ -35,6 +46,7 @@ class MCTSNode:
         self.prior = prior
         self.expansion_policy = expansion_policy
         self.use_prior_bonus = use_prior_bonus
+        self.candidate_limit = candidate_limit
         self._unexpanded_moves = self._candidate_moves(game_state)
 
     @property
@@ -102,7 +114,7 @@ class MCTSNode:
         move = self._pick_expansion_move()
         self._unexpanded_moves.remove(move)
         next_state = self.game_state.apply_move(move)
-        prior = self._rollout_prior(self.game_state, move)
+        prior = rollout_prior(self.game_state, move)
         child = MCTSNode(
             next_state,
             parent=self,
@@ -110,6 +122,7 @@ class MCTSNode:
             prior=prior,
             expansion_policy=self.expansion_policy,
             use_prior_bonus=self.use_prior_bonus,
+            candidate_limit=self.candidate_limit,
         )
         self.children.append(child)
         return child
@@ -130,81 +143,18 @@ class MCTSNode:
             node = node.parent
 
     def _pick_expansion_move(self) -> Move:
-        if self.expansion_policy == "uniform":
-            return random.choice(self._unexpanded_moves)
+        return pick_expansion_move(
+            self.game_state,
+            self._unexpanded_moves,
+            self.expansion_policy,
+        )
 
-        scored = []
-        for move in self._unexpanded_moves:
-            scored.append((self._move_priority(self.game_state, move), move))
-        scored.sort(key=lambda item: item[0], reverse=True)
-
-        top_k = min(5, len(scored))
-        if top_k == 0:
-            return Move.pass_turn()
-        return random.choice([m for _, m in scored[:top_k]])
-
-    @staticmethod
-    def _candidate_moves(game_state: GameState) -> List[Move]:
-        legal = game_state.legal_moves()
-        play_moves = [m for m in legal if m.is_play]
-        pass_moves = [m for m in legal if m.is_pass]
-
-        candidates = play_moves + pass_moves
-        if not candidates:
-            candidates = [m for m in legal if not m.is_resign]
-        return candidates
-
-    @staticmethod
-    def _rollout_prior(game_state: GameState, move: Move) -> float:
-        if move.is_pass:
-            return 0.1
-        if move.is_resign:
-            return 0.0
-
-        score = MCTSNode._move_priority(game_state, move)
-        return 1.0 + max(0.0, score) / 10.0
-
-    @staticmethod
-    def _move_priority(game_state: GameState, move: Move) -> float:
-        if move.is_pass:
-            return -1.0
-        if move.is_resign:
-            return -100.0
-
-        board = game_state.board
-        point = move.point
-        player = game_state.next_player
-        opponent = player.other
-
-        score = 0.0
-        captures = 0
-        for nb in point.neighbors():
-            if not board.is_on_grid(nb):
-                continue
-            string = board.get_go_string(nb)
-            if string is None:
-                continue
-            if string.color == opponent and string.num_liberties == 1:
-                captures += len(string.stones)
-
-        score += captures * 4.0
-
-        center_r = (board.num_rows + 1) / 2.0
-        center_c = (board.num_cols + 1) / 2.0
-        dist = abs(point.row - center_r) + abs(point.col - center_c)
-        score += max(0.0, 2.0 - 0.25 * dist)
-
-        try:
-            next_state = game_state.apply_move(move)
-            new_string = next_state.board.get_go_string(point)
-            if new_string is not None:
-                score += min(3, new_string.num_liberties) * 0.5
-                if new_string.num_liberties == 1:
-                    score -= 1.5
-        except Exception:
-            score -= 5.0
-
-        return score
+    def _candidate_moves(self, game_state: GameState) -> List[Move]:
+        return candidate_moves(
+            game_state,
+            expansion_policy=self.expansion_policy,
+            candidate_limit=self.candidate_limit,
+        )
 
 
 class MCTSAgent:
@@ -224,6 +174,7 @@ class MCTSAgent:
         rollout_policy="heuristic",
         expansion_policy="heuristic",
         use_prior_bonus=True,
+        candidate_limit=12,
     ):
         if rollout_policy not in self.VALID_ROLLOUT_POLICIES:
             raise ValueError(
@@ -242,6 +193,7 @@ class MCTSAgent:
         self.rollout_policy = rollout_policy
         self.expansion_policy = expansion_policy
         self.use_prior_bonus = use_prior_bonus
+        self.candidate_limit = candidate_limit
 
     @classmethod
     def standard_baseline(
@@ -268,6 +220,10 @@ class MCTSAgent:
         if game_state.is_over():
             return Move.pass_turn()
 
+        forced_move = forced_center_opening_move(game_state)
+        if forced_move is not None:
+            return forced_move
+
         legal = game_state.legal_moves()
         playable = [m for m in legal if m.is_play]
         if not playable:
@@ -277,6 +233,7 @@ class MCTSAgent:
             game_state,
             expansion_policy=self.expansion_policy,
             use_prior_bonus=self.use_prior_bonus,
+            candidate_limit=self.candidate_limit,
         )
         rounds = self._effective_rounds(game_state)
 
@@ -333,45 +290,10 @@ class MCTSAgent:
         return scored[0].move
 
     def _select_rollout_move(self, game_state: GameState) -> Move:
-        if self.rollout_policy == "random":
-            legal = game_state.legal_moves()
-            rollout_moves = [m for m in legal if not m.is_resign]
-            return random.choice(rollout_moves) if rollout_moves else Move.pass_turn()
-
-        legal = game_state.legal_moves()
-        play_moves = [m for m in legal if m.is_play]
-        if not play_moves:
-            return Move.pass_turn()
-
-        scored = []
-        for move in play_moves:
-            score = MCTSNode._move_priority(game_state, move)
-            scored.append((score, move))
-        scored.sort(key=lambda item: item[0], reverse=True)
-
-        sample_pool = scored[: min(8, len(scored))]
-        weights = [max(0.05, s + 1.2) for s, _ in sample_pool]
-        chosen = random.choices([m for _, m in sample_pool], weights=weights, k=1)[0]
-
-        # Light pass bias near full board to let rollouts terminate naturally.
-        board_area = game_state.board.num_rows * game_state.board.num_cols
-        move_index = self._move_index(game_state)
-        if move_index > board_area * 1.2 and random.random() < 0.08:
-            return Move.pass_turn()
-        return chosen
+        return select_rollout_move(game_state, self.rollout_policy)
 
     def _fast_position_eval(self, game_state: GameState, perspective_player: Player) -> float:
-        result = compute_game_result(game_state)
-        black_score = result.b
-        white_score = result.w + result.komi
-
-        if perspective_player == Player.black:
-            margin = black_score - white_score
-        else:
-            margin = white_score - black_score
-
-        # Smoothly map score margin to [0, 1].
-        return 1.0 / (1.0 + math.exp(-margin / 3.0))
+        return fast_position_value(game_state, perspective_player)
 
     def _effective_rounds(self, game_state: GameState) -> int:
         if self.num_rounds != -1:
@@ -381,9 +303,4 @@ class MCTSAgent:
 
     @staticmethod
     def _move_index(game_state: GameState) -> int:
-        count = 0
-        state = game_state
-        while state is not None and state.last_move is not None:
-            count += 1
-            state = state.previous_state
-        return count
+        return move_index(game_state)
