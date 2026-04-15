@@ -1,12 +1,16 @@
 """
 MCTS (Monte Carlo Tree Search) agent for Go.
+
+Implements the standard MCTS loop and augments it with heuristic
+expansion, heuristic rollouts, prior bonus guidance, and rollout
+depth limits for stronger play on 5x5 boards.
 """
 
 import math
 import random
 from typing import List
 
-from dlgo import Player, compute_game_result
+from dlgo import Player
 from dlgo.goboard import GameState, Move
 from agents.policy.opening_policy import forced_center_opening_move
 from agents.policy.mcts_policy import (
@@ -74,7 +78,7 @@ class MCTSNode:
 
     def best_child(self, c=1.414):
         """
-        Choose child by UCT score.
+        Choose a child using UCT plus optional prior bonus.
         """
         best_nodes = []
         best_score = float("-inf")
@@ -103,7 +107,7 @@ class MCTSNode:
 
     def expand(self):
         """
-        Expand one child from unexpanded moves.
+        Expand one child from the unexpanded move set.
         """
         if self.is_terminal():
             return self
@@ -129,9 +133,9 @@ class MCTSNode:
 
     def backup(self, value):
         """
-        Backpropagate rollout value to root.
+        Backpropagate rollout value to the root.
 
-        `value` is from the perspective of this node's `player`.
+        ``value`` is from the perspective of this node's ``player``.
         """
         node = self
         current_value = value
@@ -167,10 +171,10 @@ class MCTSAgent:
 
     def __init__(
         self,
-        num_rounds=300,
+        num_rounds=2500,
         temperature=1.0,
-        exploration_weight=1.414,
-        max_rollout_depth=28,
+        exploration_weight=0.6,
+        max_rollout_depth=10,
         rollout_policy="heuristic",
         expansion_policy="heuristic",
         use_prior_bonus=True,
@@ -257,9 +261,9 @@ class MCTSAgent:
 
     def _simulate(self, game_state, perspective_player):
         """
-        Rollout with two speed optimizations:
-        1) heuristic move policy
-        2) rollout depth cap
+        Run rollout with two retained optimizations:
+        1. heuristic move selection
+        2. rollout depth cap
         """
         state = game_state
         depth = 0
