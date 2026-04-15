@@ -88,6 +88,17 @@ def slugify(text: str) -> str:
     return text.strip("-") or "experiment"
 
 
+def parse_bool_arg(value: str) -> bool:
+    lowered = value.strip().lower()
+    if lowered in {"1", "true", "t", "yes", "y", "on"}:
+        return True
+    if lowered in {"0", "false", "f", "no", "n", "off"}:
+        return False
+    raise argparse.ArgumentTypeError(
+        f"Expected a boolean value, got {value!r}. Use true/false."
+    )
+
+
 def build_agent_spec(side: str, args: argparse.Namespace) -> AgentSpec:
     agent_name = getattr(args, f"{side}_agent")
 
@@ -101,14 +112,37 @@ def build_agent_spec(side: str, args: argparse.Namespace) -> AgentSpec:
 
     if agent_name == "mcts":
         rounds = getattr(args, f"{side}_mcts_rounds")
+        exploration_weight = getattr(args, f"{side}_mcts_exploration_weight")
+        max_rollout_depth = getattr(args, f"{side}_mcts_max_rollout_depth")
+        rollout_policy = getattr(args, f"{side}_mcts_rollout_policy")
+        expansion_policy = getattr(args, f"{side}_mcts_expansion_policy")
+        use_prior_bonus = getattr(args, f"{side}_mcts_use_prior_bonus")
         if rounds < 1:
             raise ValueError(f"{side} MCTS rounds must be >= 1, got {rounds}.")
-        params = {"num_rounds": rounds}
+        params = {
+            "num_rounds": rounds,
+            "exploration_weight": exploration_weight,
+            "max_rollout_depth": max_rollout_depth,
+            "rollout_policy": rollout_policy,
+            "expansion_policy": expansion_policy,
+            "use_prior_bonus": use_prior_bonus,
+        }
         return AgentSpec(
             family="MCTS",
-            label=f"MCTS(rounds={rounds})",
+            label=(
+                f"MCTS(rounds={rounds}, c={exploration_weight:g}, "
+                f"depth={max_rollout_depth}, rollout={rollout_policy}, "
+                f"expand={expansion_policy}, prior={str(use_prior_bonus).lower()})"
+            ),
             params=params,
-            factory=lambda: MCTSAgent(num_rounds=rounds),
+            factory=lambda: MCTSAgent(
+                num_rounds=rounds,
+                exploration_weight=exploration_weight,
+                max_rollout_depth=max_rollout_depth,
+                rollout_policy=rollout_policy,
+                expansion_policy=expansion_policy,
+                use_prior_bonus=use_prior_bonus,
+            ),
         )
 
     if agent_name == "minimax":
@@ -318,6 +352,14 @@ def write_json(path: Path, payload: dict) -> None:
         json.dump(payload, handle, ensure_ascii=False, indent=2)
 
 
+def write_seed_rows(path: Path, seeds: list[int]) -> None:
+    """
+    Write the explicit per-game seed list for reproducibility.
+    """
+    rows = [{"game_index": index, "seed": seed} for index, seed in enumerate(seeds)]
+    write_csv(path, rows, ["game_index", "seed"])
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run parameterized Go experiments.")
     parser.add_argument(
@@ -339,28 +381,154 @@ def parse_args() -> argparse.Namespace:
         help="White-side agent.",
     )
     parser.add_argument(
+        "--mcts-rounds",
+        type=int,
+        default=None,
+        help=(
+            "Convenience shortcut when exactly one side uses MCTS. "
+            "Use side-specific flags only when both sides are MCTS."
+        ),
+    )
+    parser.add_argument(
+        "--mcts-exploration-weight",
+        type=float,
+        default=None,
+        help=(
+            "Convenience shortcut for the MCTS exploration constant when exactly one "
+            "side uses MCTS. Use side-specific flags when both sides are MCTS."
+        ),
+    )
+    parser.add_argument(
+        "--mcts-max-rollout-depth",
+        type=int,
+        default=None,
+        help=(
+            "Convenience shortcut for MCTS rollout depth when exactly one side uses "
+            "MCTS. Use side-specific flags when both sides are MCTS."
+        ),
+    )
+    parser.add_argument(
+        "--mcts-rollout-policy",
+        choices=sorted(MCTSAgent.VALID_ROLLOUT_POLICIES),
+        default=None,
+        help=(
+            "Convenience shortcut for MCTS rollout policy when exactly one side uses "
+            "MCTS. Use side-specific flags when both sides are MCTS."
+        ),
+    )
+    parser.add_argument(
+        "--mcts-expansion-policy",
+        choices=sorted(MCTSAgent.VALID_EXPANSION_POLICIES),
+        default=None,
+        help=(
+            "Convenience shortcut for MCTS expansion policy when exactly one side uses "
+            "MCTS. Use side-specific flags when both sides are MCTS."
+        ),
+    )
+    parser.add_argument(
+        "--mcts-use-prior-bonus",
+        type=parse_bool_arg,
+        default=None,
+        metavar="{true,false}",
+        help=(
+            "Convenience shortcut for enabling/disabling MCTS prior bonus when exactly "
+            "one side uses MCTS. Use side-specific flags when both sides are MCTS."
+        ),
+    )
+    parser.add_argument(
+        "--minimax-depth",
+        type=int,
+        default=None,
+        help=(
+            "Convenience shortcut when exactly one side uses Minimax. "
+            "Use side-specific flags only when both sides are Minimax."
+        ),
+    )
+    parser.add_argument(
         "--black-mcts-rounds",
         type=int,
-        default=100,
-        help="Rounds passed to the black MCTS agent when black-agent=mcts.",
+        default=None,
+        help="Black-side MCTS rounds. Only needed when both sides are MCTS.",
     )
     parser.add_argument(
         "--white-mcts-rounds",
         type=int,
-        default=100,
-        help="Rounds passed to the white MCTS agent when white-agent=mcts.",
+        default=None,
+        help="White-side MCTS rounds. Only needed when both sides are MCTS.",
+    )
+    parser.add_argument(
+        "--black-mcts-exploration-weight",
+        type=float,
+        default=None,
+        help="Black-side MCTS exploration constant.",
+    )
+    parser.add_argument(
+        "--white-mcts-exploration-weight",
+        type=float,
+        default=None,
+        help="White-side MCTS exploration constant.",
+    )
+    parser.add_argument(
+        "--black-mcts-max-rollout-depth",
+        type=int,
+        default=None,
+        help="Black-side MCTS rollout depth. Use -1 for rollout-to-terminal.",
+    )
+    parser.add_argument(
+        "--white-mcts-max-rollout-depth",
+        type=int,
+        default=None,
+        help="White-side MCTS rollout depth. Use -1 for rollout-to-terminal.",
+    )
+    parser.add_argument(
+        "--black-mcts-rollout-policy",
+        choices=sorted(MCTSAgent.VALID_ROLLOUT_POLICIES),
+        default=None,
+        help="Black-side MCTS rollout policy.",
+    )
+    parser.add_argument(
+        "--white-mcts-rollout-policy",
+        choices=sorted(MCTSAgent.VALID_ROLLOUT_POLICIES),
+        default=None,
+        help="White-side MCTS rollout policy.",
+    )
+    parser.add_argument(
+        "--black-mcts-expansion-policy",
+        choices=sorted(MCTSAgent.VALID_EXPANSION_POLICIES),
+        default=None,
+        help="Black-side MCTS expansion policy.",
+    )
+    parser.add_argument(
+        "--white-mcts-expansion-policy",
+        choices=sorted(MCTSAgent.VALID_EXPANSION_POLICIES),
+        default=None,
+        help="White-side MCTS expansion policy.",
+    )
+    parser.add_argument(
+        "--black-mcts-use-prior-bonus",
+        type=parse_bool_arg,
+        default=None,
+        metavar="{true,false}",
+        help="Whether black-side MCTS uses prior bonus.",
+    )
+    parser.add_argument(
+        "--white-mcts-use-prior-bonus",
+        type=parse_bool_arg,
+        default=None,
+        metavar="{true,false}",
+        help="Whether white-side MCTS uses prior bonus.",
     )
     parser.add_argument(
         "--black-minimax-depth",
         type=int,
-        default=3,
-        help="Depth passed to the black Minimax agent when black-agent=minimax.",
+        default=None,
+        help="Black-side Minimax depth. Only needed when both sides are Minimax.",
     )
     parser.add_argument(
         "--white-minimax-depth",
         type=int,
-        default=3,
-        help="Depth passed to the white Minimax agent when white-agent=minimax.",
+        default=None,
+        help="White-side Minimax depth. Only needed when both sides are Minimax.",
     )
     parser.add_argument(
         "--games",
@@ -379,6 +547,16 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=0,
         help="First random seed.",
+    )
+    parser.add_argument(
+        "--seeds",
+        type=int,
+        nargs="+",
+        default=None,
+        help=(
+            "Explicit random seed for each game. When provided, the number of "
+            "seeds must match --games and overrides --seed-base."
+        ),
     )
     parser.add_argument(
         "--move-limit",
@@ -403,7 +581,134 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Print per-move elapsed time and a Unicode board after each move.",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    resolve_agent_parameter_shortcuts(args)
+    return args
+
+
+def resolve_agent_parameter_shortcuts(args: argparse.Namespace) -> None:
+    resolve_family_parameter(
+        args=args,
+        family_name="mcts",
+        generic_attr="mcts_rounds",
+        side_attrs=("black_mcts_rounds", "white_mcts_rounds"),
+        side_agents=("black_agent", "white_agent"),
+        default_value=100,
+        label="MCTS rounds",
+    )
+    resolve_family_parameter(
+        args=args,
+        family_name="mcts",
+        generic_attr="mcts_exploration_weight",
+        side_attrs=("black_mcts_exploration_weight", "white_mcts_exploration_weight"),
+        side_agents=("black_agent", "white_agent"),
+        default_value=0.6,
+        label="MCTS exploration weight",
+    )
+    resolve_family_parameter(
+        args=args,
+        family_name="mcts",
+        generic_attr="mcts_max_rollout_depth",
+        side_attrs=("black_mcts_max_rollout_depth", "white_mcts_max_rollout_depth"),
+        side_agents=("black_agent", "white_agent"),
+        default_value=10,
+        label="MCTS max rollout depth",
+    )
+    resolve_family_parameter(
+        args=args,
+        family_name="mcts",
+        generic_attr="mcts_rollout_policy",
+        side_attrs=("black_mcts_rollout_policy", "white_mcts_rollout_policy"),
+        side_agents=("black_agent", "white_agent"),
+        default_value="heuristic",
+        label="MCTS rollout policy",
+    )
+    resolve_family_parameter(
+        args=args,
+        family_name="mcts",
+        generic_attr="mcts_expansion_policy",
+        side_attrs=("black_mcts_expansion_policy", "white_mcts_expansion_policy"),
+        side_agents=("black_agent", "white_agent"),
+        default_value="heuristic",
+        label="MCTS expansion policy",
+    )
+    resolve_family_parameter(
+        args=args,
+        family_name="mcts",
+        generic_attr="mcts_use_prior_bonus",
+        side_attrs=("black_mcts_use_prior_bonus", "white_mcts_use_prior_bonus"),
+        side_agents=("black_agent", "white_agent"),
+        default_value=True,
+        label="MCTS prior bonus toggle",
+    )
+    resolve_family_parameter(
+        args=args,
+        family_name="minimax",
+        generic_attr="minimax_depth",
+        side_attrs=("black_minimax_depth", "white_minimax_depth"),
+        side_agents=("black_agent", "white_agent"),
+        default_value=3,
+        label="Minimax depth",
+    )
+
+
+def resolve_family_parameter(
+    *,
+    args: argparse.Namespace,
+    family_name: str,
+    generic_attr: str,
+    side_attrs: tuple[str, str],
+    side_agents: tuple[str, str],
+    default_value,
+    label: str,
+) -> None:
+    generic_value = getattr(args, generic_attr)
+    matching_sides = [
+        side_attr
+        for side_attr, side_agent in zip(side_attrs, side_agents)
+        if getattr(args, side_agent) == family_name
+    ]
+
+    if generic_value is not None:
+        if not matching_sides:
+            raise ValueError(
+                f"--{generic_attr.replace('_', '-')} was provided, "
+                f"but neither side is using {family_name}."
+            )
+        if len(matching_sides) > 1:
+            raise ValueError(
+                f"--{generic_attr.replace('_', '-')} is ambiguous when both sides use "
+                f"{family_name}. Please use side-specific flags for {label}."
+            )
+        target_attr = matching_sides[0]
+        explicit_value = getattr(args, target_attr)
+        if explicit_value is not None and explicit_value != generic_value:
+            raise ValueError(
+                f"Conflicting {label}: "
+                f"--{generic_attr.replace('_', '-')}={generic_value} and "
+                f"--{target_attr.replace('_', '-')}={explicit_value}."
+            )
+        setattr(args, target_attr, generic_value)
+
+    for side_attr, side_agent in zip(side_attrs, side_agents):
+        if getattr(args, side_agent) != family_name:
+            continue
+        if getattr(args, side_attr) is None:
+            setattr(args, side_attr, default_value)
+
+
+def resolve_game_seeds(args: argparse.Namespace) -> list[int]:
+    """
+    Resolve the per-game seed list from CLI arguments.
+    """
+    if args.seeds is not None:
+        if len(args.seeds) != args.games:
+            raise ValueError(
+                f"--seeds expects exactly --games values. "
+                f"Got {len(args.seeds)} seeds for --games={args.games}."
+            )
+        return list(args.seeds)
+    return [args.seed_base + game_index for game_index in range(args.games)]
 
 
 def main() -> None:
@@ -420,6 +725,7 @@ def main() -> None:
     effective_komi = (
         args.komi if args.komi is not None else default_komi_for_board_size(args.size)
     )
+    game_seeds = resolve_game_seeds(args)
 
     output_dir = resolve_output_dir(args, black_spec, white_spec)
 
@@ -430,7 +736,7 @@ def main() -> None:
                 size=args.size,
                 move_limit=move_limit,
                 komi=args.komi,
-                seed=args.seed_base + game_index,
+                seed=game_seeds[game_index],
                 game_index=game_index,
                 black_spec=black_spec,
                 white_spec=white_spec,
@@ -506,6 +812,7 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     write_csv(output_dir / "per_game.csv", per_game_rows, per_game_fieldnames)
     write_csv(output_dir / "summary.csv", [summary_row], summary_fieldnames)
+    write_seed_rows(output_dir / "game_seeds.csv", game_seeds)
     write_json(
         output_dir / "summary.json",
         {
@@ -513,6 +820,7 @@ def main() -> None:
                 "board_size": args.size,
                 "games": args.games,
                 "seed_base": args.seed_base,
+                "seeds": game_seeds,
                 "move_limit": move_limit,
                 "komi": effective_komi,
                 "move_time_limit_s": args.move_time_limit_s,
