@@ -1,235 +1,195 @@
-# 围棋 AI 大作业
+# 围棋 AI 课程项目
 
-> **作业说明文档**：[docs/homework.pdf](docs/homework.pdf)
->
-> 本项目为题目一（围棋 AI）的实现框架。
+使用了提供的框架代码：<https://github.com/zhenqis123/ai-course-hw1>
+报告 PDF：[`report/report.pdf`](report/report.pdf)
 
-围棋是一种古老的棋类游戏，蕴含着古人的智慧。2016 年，AlphaGo 击败人类顶尖棋手，标志着人工智能在博弈领域取得里程碑式的突破，其核心正是蒙特卡洛树搜索（MCTS）与深度神经网络的结合。
+本项目在课程给定的围棋规则框架之上，实现了一个可直接运行的围棋 AI 系统。GUI 保留了 5 / 7 / 9 棋盘入口，实验主要在 5x5 棋盘上进行。
 
-本题目要求实现一个基于蒙特卡洛树搜索的简易围棋 AI，能够与人类用户进行对弈。我们提供围棋的基本规则代码（包括落子合法性、提子、禁入点、终局判断等），你需要自行实现决策模块，并设计必要的图形化界面。
+当前实现包含：
 
----
-
-## AI 辅助声明
-
-本项目作业框架在 **Claude Code + GLM-5** 的辅助下完成编写。
-
----
+- `RandomAgent`：合法随机落子，用于验证规则调用。
+- `MCTSAgent`：标准 MCTS 流程 + 启发式扩展、启发式 rollout、prior bonus、rollout 截断静态评估。
+- `MinimaxAgent`：选做实现，包含 Alpha-Beta 剪枝、轻量置换表、棋串级静态评估和走子排序。
+- `PySide6` 图形界面：支持 Human vs AI / AI vs AI、参数设置、Pass / Undo / Resign、日志显示。
+- 参数化实验脚本：支持单配置实验、cross-play 批量实验、1000 rounds 的 MCTS 消融实验。
 
 ## 项目结构
 
+```text
+ai-course-hw1/
+├── agents/
+│   ├── random_agent.py
+│   ├── mcts_agent.py
+│   ├── minimax_agent.py
+│   └── policy/
+│       ├── opening_policy.py
+│       ├── mcts_policy.py
+│       └── minimax_policy.py
+├── dlgo/                         # 围棋规则、计分、Zobrist 哈希
+├── experiments/
+│   ├── run_experiments.py        # 单配置实验入口
+│   ├── run_experiment_plan.py    # 批量实验计划入口
+│   └── results/
+│       ├── experiment_plan/      # MCTS vs Minimax 正式结果
+│       └── mcts_ablation_plan/   # 1000 rounds MCTS 消融结果
+├── gui/
+├── report/
+│   ├── report.tex
+│   ├── generate_figures.py
+│   └── figures/
+├── docs/
+│   └── homework.pdf
+├── play.py
+├── play_gui.py
+└── requirements.txt
 ```
-hw1/
-├── docs/                  # 【文档】作业说明
-│   └── homework.pdf       # 作业要求 PDF
-│
-├── dlgo/                  # 【已提供】围棋规则基础设施
-│   ├── __init__.py        # 模块导出
-│   ├── gotypes.py         # Player, Point 等基础类型
-│   ├── goboard.py         # Board, GameState, Move 核心逻辑
-│   ├── scoring.py         # 计分系统
-│   └── zobrist.py         # Zobrist 哈希表
-│
-├── agents/                # 【学生实现】智能体算法
-│   ├── __init__.py
-│   ├── random_agent.py    # 第一小问：随机 AI
-│   ├── mcts_agent.py      # 第二小问：MCTS AI
-│   └── minimax_agent.py   # 第三小问：Minimax AI（选做）
-│
-├── play.py                # 命令行对弈脚本
-└── README.md              # 本文件
-```
 
----
-
-## 作业要求
-
-### 第一小问（必做）：随机 AI
-
-**要求**：
-
-- 熟悉给定规则代码或自行实现规则编写
-- 在 5×5 棋盘上基于随机落子（但需满足规则）的方式实现一个基础的围棋 AI
-- 验证规则的调用
-
-**实现文件**：`agents/random_agent.py`
-
-**测试命令**：
+## 环境安装
 
 ```bash
-python play.py --agent1 random --agent2 random --size 5
+python -m pip install -r requirements.txt
 ```
 
----
+当前主要外部依赖是 `PySide6`。实验与命令行对弈主要依赖 Python 标准库。
 
-### 第二小问（必做）：MCTS AI
+## 运行方式
 
-**要求**：
-- 在 5×5 棋盘上，实现基于标准 MCTS 算法的围棋 AI
-- 算法包含**选择、扩展、模拟（随机走子走至终局）、反向传播**四个步骤
-- 该 AI 需能根据当前棋盘状态，在合理时间（如 10s）内完成落子
-- 与用户持续对弈
-- **采取至少两种方法，尝试提升标准 MCTS 搜索效率**，例如：
-  - 启发式走子策略（非完全随机）
-  - 限制模拟深度（如 20-30 步）
-  - 其他：RAVE、池势启发等
+### 1. 命令行对弈
 
-**实现文件**：`agents/mcts_agent.py`
-
-**需完成的核心方法**：
-1. `MCTSNode.best_child()` - UCT 选择公式
-2. `MCTSNode.expand()` - 展开子节点
-3. `MCTSNode.backup()` - 反向传播
-4. `MCTSAgent.select_move()` - MCTS 主循环
-5. `MCTSAgent._simulate()` - 随机模拟（含优化策略）
-
-**测试命令**：
 ```bash
-# MCTS vs 随机 AI
+# MCTS vs Random
 python play.py --agent1 mcts --agent2 random --size 5
 
-# MCTS 对战 MCTS
-python play.py --agent1 mcts --agent2 mcts --size 5 --games 10
-```
-
----
-
-### 第三小问（选做）：Minimax AI
-
-**要求**：
-- 实现基于极小化极大（minimax）搜索算法的围棋 AI
-- 实现 Alpha-Beta 剪枝优化
-- 与 MCTS 搜索对比
-
-**实现文件**：`agents/minimax_agent.py`
-
-**需完成的核心方法**：
-1. `minimax()` - 基础递归算法
-2. `alphabeta()` - Alpha-Beta 剪枝优化
-3. `_default_evaluator()` - 局面评估函数
-4. `GameResultCache.put()` - 置换表缓存
-
-**测试命令**：
-```bash
-# Minimax vs 随机 AI
-python play.py --agent1 minimax --agent2 random --size 5
-
 # Minimax vs MCTS
-python play.py --agent1 minimax --agent2 mcts --size 5
+python play.py --agent1 minimax --agent2 mcts --size 5 --games 10 --quiet
 ```
 
----
+说明：
 
-## 图形化界面
+- `agent1` 为黑方，`agent2` 为白方。
+- `play.py` 是轻量入口，内部固定使用：
+  - `MCTS(num_rounds=100)`
+  - `Minimax(max_depth=3)`
+- 如果需要精确控制 rounds / depth，请使用实验脚本。
 
-**要求**：设计必要的图形化界面，实现人机对弈功能。
-
-**建议工具**：
-- PyQt / PySide
-- Tkinter（Python 内置）
-- pygame
-
-**功能建议**：
-- 显示棋盘和棋子
-- 支持鼠标点击落子
-- 显示当前回合、提子数等信息
-- 支持新游戏、悔棋等功能
-
----
-
-## 快速开始
-
-### 1. 测试基础设施
-
-确保 `dlgo` 模块正常工作：
+### 2. 图形界面
 
 ```bash
-python -c "from dlgo import GameState; g = GameState.new_game(5); print('OK:', g.board.num_rows)"
+python play_gui.py
 ```
 
-### 2. 开始实现
+GUI 支持：
 
-按照三个小问的顺序，依次实现：
-1. 编辑 `agents/random_agent.py`（第一小问）
-2. 编辑 `agents/mcts_agent.py`（第二小问）
-3. 编辑 `agents/minimax_agent.py`（第三小问，选做）
+- 模式：`Human vs AI`、`AI vs AI`
+- 棋盘：`5 / 7 / 9`
+- 智能体：`Random / MCTS / Minimax`
+- 参数：`MCTS rounds`、`Minimax depth`
+- 操作：`Pass / Undo / Resign`
+- 状态查看：回合、结果、步数、分数估计、走子日志
 
-### 3. 测试实现
+与代码实现强相关的两个细节：
+
+- GUI 中 `MCTS rounds = -1` 表示 `auto rounds`，不是无限搜索。
+- 在 `5x5` 棋盘上，这个 `auto rounds` 等效为 `600 rounds`。
+- 当 GUI 中 rounds 为正数时，MCTS 会使用 `max_rollout_depth=28`。
+- 当 rounds 为 `-1` 时，rollout 走到终局。
+
+### 3. 单配置实验
 
 ```bash
-# 测试随机 AI
-python -c "
-from dlgo import GameState
-from agents.random_agent import RandomAgent
-game = GameState.new_game(5)
-agent = RandomAgent()
-move = agent.select_move(game)
-print('随机 AI 选择:', move)
-"
-
-# 测试 MCTS AI
-python -c "
-from dlgo import GameState
-from agents.mcts_agent import MCTSAgent
-game = GameState.new_game(5)
-agent = MCTSAgent(num_rounds=100)
-move = agent.select_move(game)
-print('MCTS 选择:', move)
-"
+python experiments/run_experiments.py \
+  --black-agent mcts \
+  --white-agent minimax \
+  --mcts-rounds 2200 \
+  --minimax-depth 5 \
+  --games 10 \
+  --output-dir experiments/results/demo_mcts2200_vs_minimax5
 ```
 
----
+若双方都使用 MCTS，可分别传入黑白侧参数，例如：
 
-## 评分说明
+```bash
+python experiments/run_experiments.py \
+  --black-agent mcts \
+  --white-agent mcts \
+  --black-mcts-rounds 1000 \
+  --white-mcts-rounds 1000 \
+  --black-mcts-exploration-weight 1.414 \
+  --white-mcts-exploration-weight 0.6 \
+  --black-mcts-max-rollout-depth 50 \
+  --white-mcts-max-rollout-depth 10 \
+  --black-mcts-rollout-policy random \
+  --white-mcts-rollout-policy heuristic \
+  --black-mcts-expansion-policy uniform \
+  --white-mcts-expansion-policy heuristic \
+  --black-mcts-use-prior-bonus false \
+  --white-mcts-use-prior-bonus true \
+  --games 10 \
+  --output-dir experiments/results/demo_ablation
+```
 
-### 题目一：围棋AI（100分 + 20分选做）
+输出目录通常包含：
 
-- 第一小问：随机AI（15分）
-- 第二小问：MCTS AI（55分）
-- 图形化界面（15分）
-- 实验报告（15分）
-- 第三小问：Minimax AI（选做，20分）
+- `per_game.csv`：逐局结果
+- `summary.csv`：配置级汇总
+- `summary.json`：包含元数据的汇总结果
+- `game_seeds.csv`：随机种子列表
 
-### 题目二：象棋AI（100分 + 20分选做）
+### 4. 批量实验计划
 
-- 第一小问：规则框架与随机AI（45分）
-- 第二小问：搜索AI（25分）
-- 图形化界面（15分）
-- 实验报告（15分）
-- 第三小问：扩展功能（选做，20分）
+```bash
+# MCTS vs Minimax
+python experiments/run_experiment_plan.py --plan crossplay --skip-existing
 
----
+# 1000 rounds MCTS 消融
+python experiments/run_experiment_plan.py --plan ablation --skip-existing
+```
 
-## 提交要求
+## 实验使用的规则
 
-### 提交内容
-1. **Python 源码**：包含所有实现的 `.py` 文件
-2. **报告**：包含以下内容
-   - 设计思路
-   - AI 对战结果分析
-   - 与 AlphaGo/AlphaZero 的对比思考
+- 实验使用 `5x5` 棋盘。
+- 默认贴目为 `7.5`，来自 `dlgo/scoring.py` 的 `default_komi_for_board_size()`。
+- 5x5 空棋盘黑棋第一手固定走天元 `(3, 3)`，所有 Agent 共用该开局策略。（因为已经被证明是5x5 棋盘上最优的。）
+- 自然终局由连续两手 `pass` 或一方 `resign` 触发；计分采用“子数 + 地盘”，白方额外加贴目。
+- 实验脚本默认 `move_limit = board_size * board_size * 2`，因此 5x5 为 50 手；达到 50 手仍未自然终局时，按当前局面计分裁定，记为 `move_limit_score`。
+- `--move-time-limit-s` 只用于记录是否出现慢步，不会中断搜索。
+- MCTS vs Minimax 计划中，前 5 局 MCTS 执黑，后 5 局 MCTS 执白；MCTS 消融计划中，前 5 局标准 MCTS 执黑、变体执白，后 5 局反过来。
 
-### 报告建议内容
-- 算法设计思路和实现细节
-- MCTS 优化方法的效果对比
-- 不同算法（MCTS vs Minimax）的性能分析
-- 图形界面的设计说明
-- 测试结果和截图
+## 实现要点
 
----
+- `MCTSAgent` 同时支持：
+  - 标准MCTS `standard_baseline()`
+  - 当前实验使用的增强配置
+- 当前 cross-play 实验中的增强版 MCTS 默认配置为：
+  - `exploration_weight=0.6`
+  - `max_rollout_depth=10`
+  - `rollout_policy=heuristic`
+  - `expansion_policy=heuristic`
+  - `use_prior_bonus=True`
+- 当前标准 MCTS 消融对照配置为：
+  - `num_rounds=1000`
+  - `exploration_weight=1.414`
+  - `max_rollout_depth=50`
+  - `rollout_policy=random`
+  - `expansion_policy=uniform`
+  - `use_prior_bonus=False`
 
-## 参考资料
+## 实验结果摘要
 
-- 《深度学习与围棋》(Deep Learning and the Game of Go)
-- AlphaGo 论文：Mastering the game of Go with deep neural networks
-- AlphaZero 论文：Mastering the Game of Go without Human Knowledge
+完整分析见 [`report/report.pdf`](report/report.pdf)。核心结果如下：
 
----
+- MCTS 消融实验中，`Cutoff-10 + eval` 单项优化在 10 局中胜率为 100%，且平均每步耗时显著低于标准 MCTS。
+- `Full optimized` MCTS 在 1000 rounds 消融中胜率为 90%，平均胜负差最大，综合棋力和速度表现最好。
+- MCTS vs Minimax 的同步预算实验中，`MCTS(300) vs Minimax(4)`、`MCTS(600) vs Minimax(5)`、`MCTS(2200) vs Minimax(6)` 的 MCTS 胜率均为 0%。
+- 固定 `Minimax(depth=5)` 时，MCTS 胜率随 rounds 变化为：2200 rounds 为 0%，3000 rounds 为 10%，4000 rounds 为 50%，5000 rounds 为 40%。
+- 高`num_rounds` MCTS 的胜局几乎全部来自执白，说明结果受到贴目、颜色和 50 手裁定机制的明显影响。
 
-## 常见问题
+## AI辅助声明
 
-**Q: MCTS 模拟要走多少步？**
-A: 标准做法是走至终局，但可以限制深度（如 20-30 步）来提升效率。
+本项目在代码整理、实验中使用了 `Codex` 作为辅助工具。AI 主要用于：
 
-**Q: 如何判断终局？**
-A: 双方连续 pass 或棋盘填满时终局，具体参见 `dlgo/goboard.py` 中的 `is_over()` 方法。
+- 编写GUI
+- 整理策略为策略库
+- 编写代码注释
+- 生成批量实验脚本
+- 生成实验结果图表
