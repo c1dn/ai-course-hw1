@@ -146,9 +146,19 @@ class GoMainWindow(QtWidgets.QMainWindow):
         self.mcts_rounds.setRange(-1, 4000)
         self.mcts_rounds.setValue(-1)
         self.mcts_rounds.setSingleStep(50)
-        self.mcts_rounds.setToolTip("MCTS simulation rounds. Set -1 to rollout until terminal state.")
+        mcts_rounds_tooltip = (
+            "MCTS rounds setting:\n"
+            "- -1: auto rounds = max(320, board_size^2 * 24). "
+            "For 5x5 this is 600 rounds, and rollouts continue to the end.\n"
+            "- Other values: use the selected number of rounds, and cap each rollout at depth 28."
+        )
+        self.mcts_rounds.setToolTip(mcts_rounds_tooltip)
         self.mcts_rounds.setSpecialValueText("-1 (To End)")
-        self._add_form_row("mcts_rounds", "MCTS Rounds", self.mcts_rounds)
+        self._add_form_row(
+            "mcts_rounds",
+            self._help_label_widget("MCTS Rounds", mcts_rounds_tooltip),
+            self.mcts_rounds,
+        )
 
         self.minimax_depth = QtWidgets.QSpinBox()
         self.minimax_depth.setRange(1, 5)
@@ -224,6 +234,9 @@ class GoMainWindow(QtWidgets.QMainWindow):
             "- Minimax: Alpha-Beta search\n"
             "MCTS rounds = -1 means rollout to terminal state."
         )
+        return self._help_label_widget(title, tooltip)
+
+    def _help_label_widget(self, title, tooltip):
         label_widget = QtWidgets.QWidget()
         layout = QtWidgets.QHBoxLayout(label_widget)
         layout.setContentsMargins(0, 0, 0, 0)
