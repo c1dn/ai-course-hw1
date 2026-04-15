@@ -1,0 +1,66 @@
+{
+  "metadata": {
+    "board_size": 5,
+    "games": 5,
+    "seed_base": 20263414,
+    "seeds": [
+      20263414,
+      20263415,
+      20263416,
+      20263417,
+      20263418
+    ],
+    "move_limit": 50,
+    "komi": 7.5,
+    "move_time_limit_s": 20.0,
+    "black_agent": {
+      "family": "MCTS",
+      "label": "MCTS(rounds=1000, c=1.414, depth=50, rollout=random, expand=uniform, prior=false)",
+      "params": {
+        "num_rounds": 1000,
+        "exploration_weight": 1.414,
+        "max_rollout_depth": 50,
+        "rollout_policy": "random",
+        "expansion_policy": "uniform",
+        "use_prior_bonus": false
+      }
+    },
+    "white_agent": {
+      "family": "MCTS",
+      "label": "MCTS(rounds=1000, c=1.414, depth=50, rollout=heuristic, expand=uniform, prior=false)",
+      "params": {
+        "num_rounds": 1000,
+        "exploration_weight": 1.414,
+        "max_rollout_depth": 50,
+        "rollout_policy": "heuristic",
+        "expansion_policy": "uniform",
+        "use_prior_bonus": false
+      }
+    },
+    "output_dir": "/data/wyw/jdz/go/experiments/results/mcts_ablation_plan/heuristic_rollout_vs_standard_1000/standard_black"
+  },
+  "summary": {
+    "black_label": "MCTS(rounds=1000, c=1.414, depth=50, rollout=random, expand=uniform, prior=false)",
+    "white_label": "MCTS(rounds=1000, c=1.414, depth=50, rollout=heuristic, expand=uniform, prior=false)",
+    "black_family": "MCTS",
+    "white_family": "MCTS",
+    "games": 5,
+    "black_win_rate": 0.4,
+    "white_win_rate": 0.6,
+    "black_win_rate_percent": 40.0,
+    "white_win_rate_percent": 60.0,
+    "avg_total_duration_s": 402.9111998671666,
+    "avg_move_count": 30.8,
+    "avg_black_move_time_s": 8.77366785609021,
+    "avg_white_move_time_s": 17.5083294450586,
+    "max_black_move_time_s": 20.844517345540226,
+    "max_white_move_time_s": 36.555287070572376,
+    "black_exceeded_move_time_limit_games": 2,
+    "white_exceeded_move_time_limit_games": 2,
+    "move_time_limit_s": 20.0,
+    "avg_black_margin": -4.5,
+    "avg_abs_margin": 7.7,
+    "termination_summary": "move_limit_score:1; two_passes:4"
+  },
+  "per_game_count": 5
+}

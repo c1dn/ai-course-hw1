@@ -1,0 +1,11 @@
+game_index,seed,subrun,subrun_game_index,mcts_color
+0,20267414,mcts_black,0,black
+1,20267415,mcts_black,1,black
+2,20267416,mcts_black,2,black
+3,20267417,mcts_black,3,black
+4,20267418,mcts_black,4,black
+5,20267419,mcts_white,0,white
+6,20267420,mcts_white,1,white
+7,20267421,mcts_white,2,white
+8,20267422,mcts_white,3,white
+9,20267423,mcts_white,4,white

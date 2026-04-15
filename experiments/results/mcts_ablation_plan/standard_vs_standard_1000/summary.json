@@ -1,0 +1,77 @@
+{
+  "metadata": {
+    "plan": "ablation",
+    "job_key": "standard_vs_standard_1000",
+    "variant_name": "Standard MCTS",
+    "variant_config": {
+      "rounds": 1000,
+      "exploration_weight": 1.414,
+      "max_rollout_depth": 50,
+      "rollout_policy": "random",
+      "expansion_policy": "uniform",
+      "use_prior_bonus": false
+    },
+    "baseline_name": "Standard MCTS",
+    "baseline_config": {
+      "rounds": 1000,
+      "exploration_weight": 1.414,
+      "max_rollout_depth": 50,
+      "rollout_policy": "random",
+      "expansion_policy": "uniform",
+      "use_prior_bonus": false
+    },
+    "games": 10,
+    "games_per_side": 5,
+    "seeds": [
+      20260414,
+      20260415,
+      20260416,
+      20260417,
+      20260418,
+      20260419,
+      20260420,
+      20260421,
+      20260422,
+      20260423
+    ],
+    "output_dir": "/data/wyw/jdz/go/experiments/results/mcts_ablation_plan/standard_vs_standard_1000",
+    "subruns": [
+      {
+        "name": "standard_black",
+        "standard_color": "black",
+        "output_dir": "/data/wyw/jdz/go/experiments/results/mcts_ablation_plan/standard_vs_standard_1000/standard_black"
+      },
+      {
+        "name": "standard_white",
+        "standard_color": "white",
+        "output_dir": "/data/wyw/jdz/go/experiments/results/mcts_ablation_plan/standard_vs_standard_1000/standard_white"
+      }
+    ]
+  },
+  "summary": {
+    "variant_name": "Standard MCTS",
+    "variant_label": "MCTS(rounds=1000, c=1.414, depth=50, rollout=random, expand=uniform, prior=false)",
+    "standard_name": "Standard MCTS",
+    "standard_label": "MCTS(rounds=1000, c=1.414, depth=50, rollout=random, expand=uniform, prior=false)",
+    "games": 10,
+    "games_standard_black": 5,
+    "games_standard_white": 5,
+    "variant_win_rate": 0.5,
+    "standard_win_rate": 0.5,
+    "variant_win_rate_percent": 50.0,
+    "standard_win_rate_percent": 50.0,
+    "avg_total_duration_s": 324.50901267807933,
+    "avg_move_count": 31.4,
+    "avg_variant_move_time_s": 10.444010896308999,
+    "avg_standard_move_time_s": 10.232299216893,
+    "max_variant_move_time_s": 20.957506719,
+    "max_standard_move_time_s": 21.1645894945,
+    "variant_exceeded_move_time_limit_games": 5,
+    "standard_exceeded_move_time_limit_games": 5,
+    "move_time_limit_s": 20.0,
+    "avg_variant_margin": 0.8,
+    "avg_abs_margin": 5.5,
+    "termination_summary": "two_passes:10"
+  },
+  "per_game_count": 10
+}

@@ -1,0 +1,56 @@
+{
+  "metadata": {
+    "board_size": 5,
+    "games": 1,
+    "seed_base": 0,
+    "seeds": [
+      20265423
+    ],
+    "move_limit": 50,
+    "komi": 7.5,
+    "move_time_limit_s": 20.0,
+    "black_agent": {
+      "family": "Minimax",
+      "label": "Minimax(depth=5)",
+      "params": {
+        "max_depth": 5
+      }
+    },
+    "white_agent": {
+      "family": "MCTS",
+      "label": "MCTS(rounds=3000, c=0.6, depth=10, rollout=heuristic, expand=heuristic, prior=true)",
+      "params": {
+        "num_rounds": 3000,
+        "exploration_weight": 0.6,
+        "max_rollout_depth": 10,
+        "rollout_policy": "heuristic",
+        "expansion_policy": "heuristic",
+        "use_prior_bonus": true
+      }
+    }
+  },
+  "summary": {
+    "black_label": "Minimax(depth=5)",
+    "white_label": "MCTS(rounds=3000, c=0.6, depth=10, rollout=heuristic, expand=heuristic, prior=true)",
+    "black_family": "Minimax",
+    "white_family": "MCTS",
+    "games": 1,
+    "black_win_rate": 0.0,
+    "white_win_rate": 1.0,
+    "black_win_rate_percent": 0.0,
+    "white_win_rate_percent": 100.0,
+    "avg_total_duration_s": 445.3502425760962,
+    "avg_move_count": 50.0,
+    "avg_black_move_time_s": 1.782186097279191,
+    "avg_white_move_time_s": 16.03170932423789,
+    "max_black_move_time_s": 14.594306788989343,
+    "max_white_move_time_s": 54.545516552985646,
+    "black_exceeded_move_time_limit_games": 0,
+    "white_exceeded_move_time_limit_games": 1,
+    "move_time_limit_s": 20.0,
+    "avg_black_margin": -32.5,
+    "avg_abs_margin": 32.5,
+    "termination_summary": "move_limit_score:1"
+  },
+  "per_game_count": 1
+}

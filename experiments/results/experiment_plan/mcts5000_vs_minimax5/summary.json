@@ -1,0 +1,61 @@
+{
+  "metadata": {
+    "plan": "crossplay",
+    "job_key": "mcts5000_vs_minimax5",
+    "mcts_rounds": 5000,
+    "minimax_depth": 5,
+    "games": 10,
+    "games_per_side": 5,
+    "seeds": [
+      20267414,
+      20267415,
+      20267416,
+      20267417,
+      20267418,
+      20267419,
+      20267420,
+      20267421,
+      20267422,
+      20267423
+    ],
+    "output_dir": "/data/wyw/jdz/go/experiments/results/experiment_plan/mcts5000_vs_minimax5",
+    "subruns": [
+      {
+        "name": "mcts_black",
+        "mcts_color": "black",
+        "output_dir": "/data/wyw/jdz/go/experiments/results/experiment_plan/mcts5000_vs_minimax5/mcts_black"
+      },
+      {
+        "name": "mcts_white",
+        "mcts_color": "white",
+        "output_dir": "/data/wyw/jdz/go/experiments/results/experiment_plan/mcts5000_vs_minimax5/mcts_white"
+      }
+    ]
+  },
+  "summary": {
+    "mcts_label": "MCTS(rounds=5000)",
+    "minimax_label": "Minimax(depth=5)",
+    "mcts_rounds": 5000,
+    "minimax_depth": 5,
+    "games": 10,
+    "games_mcts_black": 5,
+    "games_mcts_white": 5,
+    "mcts_win_rate": 0.4,
+    "minimax_win_rate": 0.6,
+    "mcts_win_rate_percent": 40.0,
+    "minimax_win_rate_percent": 60.0,
+    "avg_total_duration_s": 551.262126634398,
+    "avg_move_count": 42.6,
+    "avg_mcts_move_time_s": 24.10735763876,
+    "avg_minimax_move_time_s": 2.053813398828,
+    "max_mcts_move_time_s": 93.33177888,
+    "max_minimax_move_time_s": 11.246207585,
+    "mcts_exceeded_move_time_limit_games": 10,
+    "minimax_exceeded_move_time_limit_games": 0,
+    "move_time_limit_s": 20.0,
+    "avg_mcts_margin": 0.5,
+    "avg_abs_margin": 23.1,
+    "termination_summary": "move_limit_score:3; two_passes:7"
+  },
+  "per_game_count": 10
+}
